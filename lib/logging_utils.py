@@ -1,19 +1,47 @@
+"""Logging utilities for the Graphent agent framework.
+
+This module provides logging configuration and decorators for
+tracking agent activity during conversations.
+"""
+
 import logging
 import os
 from functools import wraps
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 from lib.Context import Context
 
+#: Custom log level for agent activity (between INFO and WARNING)
 LOG_LEVEL = 25
+
+#: Maximum length for truncated log output
 TRUNCATE_LIMIT = int(os.environ.get("TRUNCATE_LIMIT", 250))
 
+
 class AgentLoggerConfig:
+    """Configuration class for agent logging.
+    
+    This class manages the singleton setup of logging for agents,
+    ensuring logging is configured only once per application run.
+    
+    Attributes:
+        _setup_done: Flag to prevent duplicate setup.
+        _last_returned_result: Cache to avoid duplicate log entries.
+    """
     _setup_done = False
     _last_returned_result = None
 
     @staticmethod
-    def setup(level=LOG_LEVEL, log_file=None):
+    def setup(level: int = LOG_LEVEL, log_file: str | None = None) -> None:
+        """Set up logging for agent activity.
+        
+        Configures the root logger with a timestamped format. Can log
+        to either console or a file.
+        
+        Args:
+            level: The logging level to use (default: LOG_LEVEL).
+            log_file: Optional path to a log file. If None, logs to console.
+        """
         if AgentLoggerConfig._setup_done:
             return
 
@@ -38,7 +66,25 @@ class AgentLoggerConfig:
         AgentLoggerConfig._setup_done = True
 
 
-def log_agent_activity(func):
+def log_agent_activity(func: Callable) -> Callable:
+    """Decorator that logs agent method invocations.
+    
+    Wraps agent methods to log the start of execution with input details
+    and the returned result. Automatically extracts context information
+    and truncates long outputs.
+    
+    Args:
+        func: The agent method to wrap.
+        
+    Returns:
+        The wrapped function with logging.
+    
+    Example:
+        >>> class MyAgent:
+        ...     @log_agent_activity
+        ...     def invoke(self, context: Context) -> Context:
+        ...         ...
+    """
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         agent_name = getattr(self, "name", "Unknown Agent")
@@ -67,7 +113,7 @@ def log_agent_activity(func):
             last_input = "<error reading context>"
             last_input_type = "<error>"
 
-        logging.log(LOG_LEVEL, f"START {agent_name} METHODE {method_name} WITH {last_input_type}:\"{truncate(last_input)}\"")
+        logging.log(LOG_LEVEL, f"START {agent_name} METHOD {method_name} WITH {last_input_type}:\"{truncate(last_input)}\"")
 
         result = func(self, *args, **kwargs)
 
@@ -81,6 +127,16 @@ def log_agent_activity(func):
 
 
 def format_args(args: tuple) -> Dict[str, Any]:
+    """Extract and categorize function arguments for logging.
+    
+    Separates Context objects from other arguments for structured logging.
+    
+    Args:
+        args: The positional arguments passed to a function.
+        
+    Returns:
+        A dictionary with 'context' (Context or None) and 'other' (list of strings).
+    """
     arg_strings: Dict[str, Any] = {
         "context": None,
         "other": [],
@@ -94,7 +150,17 @@ def format_args(args: tuple) -> Dict[str, Any]:
 
     return arg_strings
 
+
 def truncate(value: Any) -> str:
+    """Truncate a value's string representation for logging.
+    
+    Args:
+        value: Any value to convert and potentially truncate.
+        
+    Returns:
+        A string representation, truncated to TRUNCATE_LIMIT characters
+        if necessary, with '[truncated]' suffix.
+    """
     if value is None:
         return "<none>"
 

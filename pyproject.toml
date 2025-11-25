@@ -1,9 +1,13 @@
 [project]
 name = "graphent"
 version = "0.1.0"
-description = "Add your description here"
+description = "A multi-agent framework for building conversational AI systems"
 requires-python = ">=3.13"
 dependencies = [
-    "langchain>=1.0.8",
+    "langchain>=1.0.3",
     "langchain-openai>=1.1.0",
+    "requests>=2.28.0",
 ]
+
+[project.scripts]
+graphent = "cli:main"
