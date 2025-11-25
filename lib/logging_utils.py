@@ -113,7 +113,7 @@ def log_agent_activity(func: Callable) -> Callable:
             last_input = "<error reading context>"
             last_input_type = "<error>"
 
-        logging.log(LOG_LEVEL, f"START {agent_name} METHODE {method_name} WITH {last_input_type}:\"{truncate(last_input)}\"")
+        logging.log(LOG_LEVEL, f"START {agent_name} METHOD {method_name} WITH {last_input_type}:\"{truncate(last_input)}\"")
 
         result = func(self, *args, **kwargs)
 
