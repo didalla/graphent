@@ -8,7 +8,7 @@ from lib.Context import Context
 from lib.logging_utils import AgentLoggerConfig
 from tools.map_tool import get_coords, get_weather
 
-AgentLoggerConfig.setup()
+AgentLoggerConfig.setup(log_file=os.environ.get("PATH_TO_FILE", None))
 
 model = ChatOpenAI(
     model="google/gemini-2.5-flash-preview-09-2025",

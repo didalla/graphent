@@ -18,10 +18,10 @@ from pydantic import BaseModel, Field
 
 class AgentHandOff(BaseModel):
     """Schema for agent hand-off tool arguments.
-    
+
     This Pydantic model defines the structure for delegating tasks
     between agents in the multi-agent system.
-    
+
     Attributes:
         agent_name: The name of the target agent to delegate to.
         task: A detailed description of the subtask to be performed.
@@ -32,11 +32,11 @@ class AgentHandOff(BaseModel):
 
 class Agent:
     """An AI agent capable of using tools and delegating to sub-agents.
-    
+
     The Agent class is the core component of the Graphent framework. It wraps
     a language model and provides capabilities for tool use and multi-agent
     collaboration through task delegation.
-    
+
     Attributes:
         name: The display name of the agent.
         system_prompt: The system prompt that configures the agent's behavior.
@@ -44,7 +44,7 @@ class Agent:
         tools: List of tools available to this agent.
         callable_agents: List of sub-agents this agent can delegate tasks to.
         model: The language model (with tools bound if applicable).
-    
+
     Example:
         >>> agent = Agent(
         ...     name="Assistant",
@@ -56,7 +56,7 @@ class Agent:
         >>> context = Context().add_message(HumanMessage(content="Hello!"))
         >>> result = agent.invoke(context)
     """
-    
+
     def __init__(self,
                  name: str,
                  model: BaseChatModel,
@@ -65,7 +65,7 @@ class Agent:
                  tools: Optional[list[BaseTool]] = None,
                  callable_agents: Optional[list['Agent']] = None):
         """Initialize a new Agent.
-        
+
         Args:
             name: The display name of the agent.
             model: The LangChain chat model to use for generating responses.
@@ -100,14 +100,14 @@ class Agent:
     @staticmethod
     def _set_up_system_prompt(system_prompt: str, callable_agents: Optional[list['Agent']] = None) -> str:
         """Enhance the system prompt with sub-agent information.
-        
+
         If the agent has callable sub-agents, this method appends instructions
         for delegating tasks to them.
-        
+
         Args:
             system_prompt: The base system prompt.
             callable_agents: Optional list of sub-agents to include in the prompt.
-            
+
         Returns:
             The enhanced system prompt with delegation instructions.
         """
@@ -127,15 +127,15 @@ class Agent:
 
     def _hand_off_to_subagent(self, agent_name: str, task: str) -> str:
         """Invoke a sub-agent with a delegated subtask.
-        
+
         Used for delegating subtasks to other specialized agents in the
         multi-agent system.
-        
+
         Args:
             agent_name: Name of the agent to be invoked.
             task: A detailed description of the subtask to be performed
                 by the invoked agent, with all necessary information.
-                
+
         Returns:
             The result of the subtask performed by the invoked agent as a string.
         """
@@ -163,17 +163,17 @@ class Agent:
     @log_agent_activity
     def invoke(self, context: Context, max_iterations: int = 10, _current_iteration: int = 0) -> Context:
         """Invoke the agent with the given context.
-        
+
         Processes the conversation context through the language model,
         handling any tool calls recursively until a final response is generated.
-        
+
         Args:
             context: The conversation context containing messages.
             max_iterations: Maximum number of tool-use iterations to prevent
                 infinite loops. Defaults to 10.
             _current_iteration: Internal counter for tracking recursion depth.
                 Do not set this manually.
-                
+
         Returns:
             The updated context with the agent's response and any tool results.
         """
@@ -182,14 +182,15 @@ class Agent:
                 content="I've reached the maximum number of steps for this request. Please try breaking down your request into smaller parts."
             ))
             return context
-            
+
         chat_history = [SystemMessage(content=self.system_prompt), *context.get_messages()]
 
         response = self.model.invoke(chat_history)
-        
+
         # Add AI response to context (preserves tool call information)
         context.add_message(response)
-        
+
+        self._last_response = response # For wrapper
         if not response.tool_calls:
             return context
 

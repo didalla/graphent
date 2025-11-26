@@ -29,7 +29,7 @@ class AgentLoggerConfig:
         _last_returned_result: Cache to avoid duplicate log entries.
     """
     _setup_done = False
-    _last_returned_result = None
+    _last_returned_response_id = None
 
     @staticmethod
     def setup(level: int = LOG_LEVEL, log_file: str | None = None) -> None:
@@ -92,7 +92,7 @@ def log_agent_activity(func: Callable) -> Callable:
 
         inputs = format_args(args)
 
-        # --- simplified: safely get last message and its type ---
+        last = None
         last_input = "<no input>"
         last_input_type = "<none>"
         try:
@@ -117,9 +117,28 @@ def log_agent_activity(func: Callable) -> Callable:
 
         result = func(self, *args, **kwargs)
 
-        if result != AgentLoggerConfig._last_returned_result:
-            logging.log(LOG_LEVEL, f"Function {func.__name__} returned: {truncate(result)}")
-            AgentLoggerConfig._last_returned_result = result
+        response = getattr(self, "_last_response", None)
+        if response:
+            resp_metadata = _get(response, "response_metadata", None)
+            resp_content = _get(response, "content", "<error>")
+            resp_content_type = type(resp_content).__name__
+
+            resp_id = _get(resp_metadata, "id", "<error reading id>") if resp_metadata else "<error reading id>"
+
+            token_usage = _get(resp_metadata, "token_usage", None) if resp_metadata else None
+            input_tokens = _get(token_usage, "prompt_tokens", "<error>") if token_usage else "<error>"
+            output_tokens = _get(token_usage, "completion_tokens", "<error>") if token_usage else "<error>"
+            total_tokens = _get(token_usage, "total_tokens", "<error>") if token_usage else "<error>"
+
+            if resp_id != AgentLoggerConfig._last_returned_response_id:
+                logging.log(LOG_LEVEL, f"END {agent_name} METHODE {method_name} WITH {resp_content_type}: {truncate(resp_content)}")
+                if token_usage:
+                    logging.log(LOG_LEVEL, f"   Cost: {input_tokens} input tokens, {output_tokens} output tokens, {total_tokens} total tokens")
+                else:
+                    logging.log(LOG_LEVEL, f"   Cost: Token usage not available.")
+                AgentLoggerConfig._last_returned_response_id = resp_id
+        else:
+            logging.log(LOG_LEVEL, f"ERROR: Something went wrong! No response object found for {agent_name} method {method_name}.")
 
         return result
 
@@ -151,6 +170,13 @@ def format_args(args: tuple) -> Dict[str, Any]:
     return arg_strings
 
 
+def _get(obj, key, default=None):
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
 def truncate(value: Any) -> str:
     """Truncate a value's string representation for logging.
     
@@ -164,7 +190,7 @@ def truncate(value: Any) -> str:
     if value is None:
         return "<none>"
 
-    string = str(value)
+    string = str(value).replace('\n', '\\n')
     if len(string) > TRUNCATE_LIMIT:
         return string[:TRUNCATE_LIMIT] + '...[truncated]'
     else:
