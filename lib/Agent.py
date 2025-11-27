@@ -16,6 +16,22 @@ from lib.logging_utils import log_agent_activity
 from pydantic import BaseModel, Field
 
 
+# ============================================================================
+# System Prompt Templates
+# ============================================================================
+
+AGENT_DELEGATION_PROMPT_HEADER = """
+Planning: If you don't have information for a tool call, check if you can use a tool or a subagent to get the information you need.
+You can use a tool and then react to its output, or you can call a subagent to perform a specific task.
+
+# Important: You can delegate subtasks to other agents using the tool 'hand_off_to_subagent'.
+Group tasks that are for a single agent when calling other agents.
+You have access to the following agents:
+"""
+
+AGENT_DELEGATION_AGENT_TEMPLATE = "- {name}\n  Description: {description}\n"
+
+
 class AgentHandOff(BaseModel):
     """Schema for agent hand-off tool arguments.
 
@@ -112,17 +128,12 @@ class Agent:
             The enhanced system prompt with delegation instructions.
         """
         if callable_agents is not None:
-            system_prompt += """
-            Planning if you don't have information for a tool call, check if you can use a tool or a subagent to get the information you need.
-            You can use a tool and then react to its output, or you can call a subagent to perform a specific task.
-            
-            # Important: You can delegate subtasks to other agents using the tool 'hand_off_to_subagent'.
-            Group tasks that are for a single agent when calling other agents.
-            You have access to the following agents:
-            """
+            system_prompt += AGENT_DELEGATION_PROMPT_HEADER
             for agent in callable_agents:
-                system_prompt += f"- {agent.name}\n"
-                system_prompt += f"  Description: {agent.description}\n"
+                system_prompt += AGENT_DELEGATION_AGENT_TEMPLATE.format(
+                    name=agent.name,
+                    description=agent.description
+                )
         return system_prompt
 
     def _hand_off_to_subagent(self, agent_name: str, task: str) -> str:
