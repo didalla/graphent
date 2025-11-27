@@ -4,6 +4,8 @@ This module provides logging configuration and decorators for
 tracking agent activity during conversations.
 """
 
+import asyncio
+import inspect
 import logging
 import os
 from functools import wraps
@@ -71,10 +73,10 @@ def log_agent_activity(func: Callable) -> Callable:
     
     Wraps agent methods to log the start of execution with input details
     and the returned result. Automatically extracts context information
-    and truncates long outputs.
+    and truncates long outputs. Supports both sync and async methods.
     
     Args:
-        func: The agent method to wrap.
+        func: The agent method to wrap (sync or async).
         
     Returns:
         The wrapped function with logging.
@@ -84,7 +86,72 @@ def log_agent_activity(func: Callable) -> Callable:
         ...     @log_agent_activity
         ...     def invoke(self, context: Context) -> Context:
         ...         ...
+        ...     @log_agent_activity
+        ...     async def ainvoke(self, context: Context) -> Context:
+        ...         ...
     """
+    def _log_start(self, args):
+        """Helper to log the start of method execution."""
+        agent_name = getattr(self, "name", "Unknown Agent")
+        method_name = func.__name__
+        inputs = format_args(args)
+
+        last_input = "<no input>"
+        last_input_type = "<none>"
+        try:
+            ctx = inputs["context"]
+            if isinstance(ctx, Context):
+                msgs = ctx.get_messages()
+            elif isinstance(ctx, list):
+                msgs = ctx
+            else:
+                msgs = []
+
+            if msgs:
+                last = msgs[-1]
+                last_input = getattr(last, "content", str(last))
+                last_input_type = type(last).__name__
+        except Exception:
+            last_input = "<error reading context>"
+            last_input_type = "<error>"
+
+        logging.log(LOG_LEVEL, f"START {agent_name} METHOD {method_name} WITH {last_input_type}:\"{truncate(last_input)}\"")
+        return agent_name, method_name
+
+    def _log_end(self, agent_name, method_name):
+        """Helper to log the end of method execution."""
+        response = getattr(self, "_last_response", None)
+        if response:
+            resp_metadata = _get(response, "response_metadata", None)
+            resp_content = _get(response, "content", "<error>")
+            resp_content_type = type(resp_content).__name__
+
+            resp_id = _get(resp_metadata, "id", "<error reading id>") if resp_metadata else "<error reading id>"
+
+            token_usage = _get(resp_metadata, "token_usage", None) if resp_metadata else None
+            input_tokens = _get(token_usage, "prompt_tokens", "<error>") if token_usage else "<error>"
+            output_tokens = _get(token_usage, "completion_tokens", "<error>") if token_usage else "<error>"
+            total_tokens = _get(token_usage, "total_tokens", "<error>") if token_usage else "<error>"
+
+            if resp_id != AgentLoggerConfig._last_returned_response_id:
+                logging.log(LOG_LEVEL, f"END {agent_name} METHODE {method_name} WITH {resp_content_type}: {truncate(resp_content)}")
+                if token_usage:
+                    logging.log(LOG_LEVEL, f"   Cost: {input_tokens} input tokens, {output_tokens} output tokens, {total_tokens} total tokens")
+                else:
+                    logging.log(LOG_LEVEL, f"   Cost: Token usage not available.")
+                AgentLoggerConfig._last_returned_response_id = resp_id
+        else:
+            logging.log(LOG_LEVEL, f"ERROR: Something went wrong! No response object found for {agent_name} method {method_name}.")
+
+    if asyncio.iscoroutinefunction(func):
+        @wraps(func)
+        async def async_wrapper(self, *args, **kwargs):
+            agent_name, method_name = _log_start(self, args)
+            result = await func(self, *args, **kwargs)
+            _log_end(self, agent_name, method_name)
+            return result
+        return async_wrapper
+
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         agent_name = getattr(self, "name", "Unknown Agent")

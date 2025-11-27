@@ -6,18 +6,13 @@ Graphent: an extensible, production-grade agent framework for building, orchestr
 
 ## Future Features
 
-1. Async Support
-The framework is synchronous. Consider adding async variants:
-
-async def ainvoke(self, context: Context) -> Context:
-    ...
-2. Streaming Support
+1. Streaming Support
 For better UX, consider adding streaming responses.
 
-3. Serialization/Deserialization
+2. Serialization/Deserialization
 Add ability to save/load agent configurations and conversation contexts.
 
-4. Event Hooks/Callbacks
+3. Event Hooks/Callbacks
 Add hooks for monitoring:
 
 @on_tool_cool
@@ -30,5 +25,5 @@ Add hooks for monitoring:
 
 @on_delegation
 
-5. Token Counting/Cost Tracking
+4. Token Counting/Cost Tracking
 Track API usage for cost monitoring.
