@@ -4,10 +4,10 @@ This module provides the core Agent class that can process conversations,
 use tools, and delegate tasks to sub-agents.
 """
 
-from typing import Optional
+from typing import Optional, Generator, AsyncGenerator
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage, SystemMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, ToolMessage, SystemMessage
 from langchain_core.tools import StructuredTool, BaseTool
 
 from lib.Context import Context
@@ -322,3 +322,228 @@ class Agent:
                 context.add_message(tool_result)
 
         return await self.ainvoke(context, max_iterations, _current_iteration + 1)
+
+    @log_agent_activity
+    def stream(self, context: Context, max_iterations: int = 10, _current_iteration: int = 0) -> Generator[str, None, Context]:
+        """Stream the agent's response chunk by chunk.
+
+        Processes the conversation context through the language model using
+        streaming, yielding response chunks as they become available. Handles
+        tool calls recursively like invoke().
+
+        Args:
+            context: The conversation context containing messages.
+            max_iterations: Maximum number of tool-use iterations to prevent
+                infinite loops. Defaults to 10.
+            _current_iteration: Internal counter for tracking recursion depth.
+                Do not set this manually.
+
+        Yields:
+            String chunks of the response as they are generated.
+
+        Returns:
+            The updated context with the agent's response and any tool results.
+
+        Example:
+            >>> context = Context().add_message(HumanMessage(content="Hello"))
+            >>> for chunk in agent.stream(context):
+            ...     print(chunk, end="", flush=True)
+        """
+        if _current_iteration >= max_iterations:
+            max_iter_message = "I've reached the maximum number of steps for this request. Please try breaking down your request into smaller parts."
+            context.add_message(AIMessage(content=max_iter_message))
+            yield max_iter_message
+            return context
+
+        chat_history = [SystemMessage(content=self.system_prompt), *context.get_messages()]
+
+        # Collect the full response while streaming
+        full_content = ""
+        tool_calls = []
+
+        for chunk in self.model.stream(chat_history):
+            # Accumulate content
+            if hasattr(chunk, 'content') and chunk.content:
+                full_content += chunk.content
+                yield chunk.content
+
+            # Accumulate tool calls from chunks
+            if hasattr(chunk, 'tool_call_chunks') and chunk.tool_call_chunks:
+                for tool_call_chunk in chunk.tool_call_chunks:
+                    # Find or create tool call entry
+                    tc_index = tool_call_chunk.get('index', 0)
+                    while len(tool_calls) <= tc_index:
+                        tool_calls.append({'id': '', 'name': '', 'args': ''})
+                    
+                    if tool_call_chunk.get('id'):
+                        tool_calls[tc_index]['id'] = tool_call_chunk['id']
+                    if tool_call_chunk.get('name'):
+                        tool_calls[tc_index]['name'] = tool_call_chunk['name']
+                    if tool_call_chunk.get('args'):
+                        tool_calls[tc_index]['args'] += tool_call_chunk['args']
+
+        # Build the complete response message
+        response = AIMessage(content=full_content)
+        
+        # Parse accumulated tool calls if any
+        if tool_calls and tool_calls[0].get('name'):
+            import json
+            parsed_tool_calls = []
+            for tc in tool_calls:
+                if tc.get('name'):
+                    try:
+                        args = json.loads(tc['args']) if tc['args'] else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                    parsed_tool_calls.append({
+                        'id': tc['id'],
+                        'name': tc['name'],
+                        'args': args
+                    })
+            response.tool_calls = parsed_tool_calls
+
+        # Add AI response to context
+        context.add_message(response)
+        self._last_response = response
+
+        if not response.tool_calls:
+            return context
+
+        # Guard against None tools
+        if self.tools is None:
+            return context
+
+        # Process tool calls
+        for tool_call in response.tool_calls:
+            tool_call_id = tool_call.get('id', '')
+            fitting_tools = [tool for tool in self.tools if tool.name == tool_call['name']]
+            if len(fitting_tools) == 0:
+                context.add_message(ToolMessage(
+                    content=f"Tool {tool_call['name']} is not available",
+                    tool_call_id=tool_call_id
+                ))
+            elif len(fitting_tools) > 1:
+                context.add_message(ToolMessage(
+                    content=f"More than one tool named {tool_call['name']} is available",
+                    tool_call_id=tool_call_id
+                ))
+            else:
+                tool_result = fitting_tools[0].invoke(tool_call)
+                context.add_message(tool_result)
+
+        # Recursively continue streaming after tool calls
+        yield from self.stream(context, max_iterations, _current_iteration + 1)
+        return context
+
+    @log_agent_activity
+    async def astream(self, context: Context, max_iterations: int = 10, _current_iteration: int = 0) -> AsyncGenerator[str, None]:
+        """Asynchronously stream the agent's response chunk by chunk.
+
+        Async variant of stream(). Processes the conversation context through
+        the language model using async streaming, yielding response chunks
+        as they become available.
+
+        Args:
+            context: The conversation context containing messages.
+            max_iterations: Maximum number of tool-use iterations to prevent
+                infinite loops. Defaults to 10.
+            _current_iteration: Internal counter for tracking recursion depth.
+                Do not set this manually.
+
+        Yields:
+            String chunks of the response as they are generated.
+
+        Example:
+            >>> context = Context().add_message(HumanMessage(content="Hello"))
+            >>> async for chunk in agent.astream(context):
+            ...     print(chunk, end="", flush=True)
+        """
+        if _current_iteration >= max_iterations:
+            max_iter_message = "I've reached the maximum number of steps for this request. Please try breaking down your request into smaller parts."
+            context.add_message(AIMessage(content=max_iter_message))
+            yield max_iter_message
+            return
+
+        chat_history = [SystemMessage(content=self.system_prompt), *context.get_messages()]
+
+        # Collect the full response while streaming
+        full_content = ""
+        tool_calls = []
+
+        async for chunk in self.model.astream(chat_history):
+            # Accumulate content
+            if hasattr(chunk, 'content') and chunk.content:
+                full_content += chunk.content
+                yield chunk.content
+
+            # Accumulate tool calls from chunks
+            if hasattr(chunk, 'tool_call_chunks') and chunk.tool_call_chunks:
+                for tool_call_chunk in chunk.tool_call_chunks:
+                    # Find or create tool call entry
+                    tc_index = tool_call_chunk.get('index', 0)
+                    while len(tool_calls) <= tc_index:
+                        tool_calls.append({'id': '', 'name': '', 'args': ''})
+                    
+                    if tool_call_chunk.get('id'):
+                        tool_calls[tc_index]['id'] = tool_call_chunk['id']
+                    if tool_call_chunk.get('name'):
+                        tool_calls[tc_index]['name'] = tool_call_chunk['name']
+                    if tool_call_chunk.get('args'):
+                        tool_calls[tc_index]['args'] += tool_call_chunk['args']
+
+        # Build the complete response message
+        response = AIMessage(content=full_content)
+        
+        # Parse accumulated tool calls if any
+        if tool_calls and tool_calls[0].get('name'):
+            import json
+            parsed_tool_calls = []
+            for tc in tool_calls:
+                if tc.get('name'):
+                    try:
+                        args = json.loads(tc['args']) if tc['args'] else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                    parsed_tool_calls.append({
+                        'id': tc['id'],
+                        'name': tc['name'],
+                        'args': args
+                    })
+            response.tool_calls = parsed_tool_calls
+
+        # Add AI response to context
+        context.add_message(response)
+        self._last_response = response
+
+        if not response.tool_calls:
+            return
+
+        # Guard against None tools
+        if self.tools is None:
+            return
+
+        # Process tool calls
+        for tool_call in response.tool_calls:
+            tool_call_id = tool_call.get('id', '')
+            fitting_tools = [tool for tool in self.tools if tool.name == tool_call['name']]
+            if len(fitting_tools) == 0:
+                context.add_message(ToolMessage(
+                    content=f"Tool {tool_call['name']} is not available",
+                    tool_call_id=tool_call_id
+                ))
+            elif len(fitting_tools) > 1:
+                context.add_message(ToolMessage(
+                    content=f"More than one tool named {tool_call['name']} is available",
+                    tool_call_id=tool_call_id
+                ))
+            else:
+                tool = fitting_tools[0]
+                if hasattr(tool, 'ainvoke'):
+                    tool_result = await tool.ainvoke(tool_call)
+                else:
+                    tool_result = tool.invoke(tool_call)
+                context.add_message(tool_result)
+
+        # Recursively continue streaming after tool calls
+        async for chunk in self.astream(context, max_iterations, _current_iteration + 1):
+            yield chunk
