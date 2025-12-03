@@ -9,3 +9,10 @@ dist/
 build/
 *.log
 .env
+
+uv.lock
+.pytest_cache/
+coverage/
+htmlcov/
+
+.venv
