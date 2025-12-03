@@ -895,3 +895,467 @@ class TestToolCallGuard:
         
         # Should return without processing tool calls or recursing
         assert mock_model.invoke.call_count == 1
+
+
+# ============================================================================
+# Streaming Tests
+# ============================================================================
+
+class TestStreamingBasic:
+    """Tests for basic streaming functionality."""
+
+    def test_stream_yields_chunks(self, mock_model):
+        """Stream should yield content chunks as they arrive."""
+        # Create mock chunks
+        chunk1 = MagicMock()
+        chunk1.content = "Hello"
+        chunk1.tool_call_chunks = []
+        
+        chunk2 = MagicMock()
+        chunk2.content = " world"
+        chunk2.tool_call_chunks = []
+        
+        chunk3 = MagicMock()
+        chunk3.content = "!"
+        chunk3.tool_call_chunks = []
+        
+        mock_model.stream = MagicMock(return_value=iter([chunk1, chunk2, chunk3]))
+        
+        agent = Agent(
+            name="StreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test"
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        chunks = list(agent.stream(context))
+        
+        assert chunks == ["Hello", " world", "!"]
+        mock_model.stream.assert_called_once()
+
+    def test_stream_updates_context(self, mock_model):
+        """Stream should add the complete response to context."""
+        chunk1 = MagicMock()
+        chunk1.content = "Full "
+        chunk1.tool_call_chunks = []
+        
+        chunk2 = MagicMock()
+        chunk2.content = "response"
+        chunk2.tool_call_chunks = []
+        
+        mock_model.stream = MagicMock(return_value=iter([chunk1, chunk2]))
+        
+        agent = Agent(
+            name="StreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test"
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        # Consume the generator
+        list(agent.stream(context))
+        
+        messages = context.get_messages()
+        assert len(messages) == 2
+        assert messages[1].content == "Full response"
+
+    def test_stream_empty_content_chunks(self, mock_model):
+        """Stream should handle chunks with empty content."""
+        chunk1 = MagicMock()
+        chunk1.content = ""
+        chunk1.tool_call_chunks = []
+        
+        chunk2 = MagicMock()
+        chunk2.content = "Hello"
+        chunk2.tool_call_chunks = []
+        
+        chunk3 = MagicMock()
+        chunk3.content = ""
+        chunk3.tool_call_chunks = []
+        
+        mock_model.stream = MagicMock(return_value=iter([chunk1, chunk2, chunk3]))
+        
+        agent = Agent(
+            name="StreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test"
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        chunks = list(agent.stream(context))
+        
+        # Only non-empty chunks should be yielded
+        assert chunks == ["Hello"]
+
+    def test_stream_max_iterations(self, mock_model):
+        """Stream should respect max_iterations limit."""
+        agent = Agent(
+            name="StreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test"
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        chunks = list(agent.stream(context, max_iterations=10, _current_iteration=10))
+        
+        expected_message = "I've reached the maximum number of steps for this request. Please try breaking down your request into smaller parts."
+        assert chunks == [expected_message]
+        
+        messages = context.get_messages()
+        assert messages[-1].content == expected_message
+
+
+class TestStreamingWithTools:
+    """Tests for streaming with tool calls."""
+
+    def test_stream_with_tool_calls(self, mock_model, mock_tool):
+        """Stream should handle tool calls and continue streaming."""
+        # First response with tool call
+        tool_chunk = MagicMock()
+        tool_chunk.content = ""
+        tool_chunk.tool_call_chunks = [{
+            'index': 0,
+            'id': 'call_123',
+            'name': 'test_tool',
+            'args': '{"arg": "value"}'
+        }]
+        
+        # Second response after tool
+        response_chunk = MagicMock()
+        response_chunk.content = "Tool result processed"
+        response_chunk.tool_call_chunks = []
+        
+        mock_model.stream = MagicMock(side_effect=[
+            iter([tool_chunk]),
+            iter([response_chunk])
+        ])
+        
+        # Mock tool to return a ToolMessage
+        mock_tool.invoke = MagicMock(return_value=ToolMessage(
+            content="Tool output",
+            tool_call_id="call_123"
+        ))
+        
+        agent = Agent(
+            name="ToolStreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test",
+            tools=[mock_tool]
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        chunks = list(agent.stream(context))
+        
+        # Should yield the final response
+        assert "Tool result processed" in chunks
+        # Tool should have been invoked
+        mock_tool.invoke.assert_called_once()
+
+    def test_stream_tool_not_found(self, mock_model, mock_tool):
+        """Stream should handle missing tools gracefully."""
+        tool_chunk = MagicMock()
+        tool_chunk.content = ""
+        tool_chunk.tool_call_chunks = [{
+            'index': 0,
+            'id': 'call_123',
+            'name': 'nonexistent_tool',
+            'args': '{}'
+        }]
+        
+        response_chunk = MagicMock()
+        response_chunk.content = "Acknowledged"
+        response_chunk.tool_call_chunks = []
+        
+        mock_model.stream = MagicMock(side_effect=[
+            iter([tool_chunk]),
+            iter([response_chunk])
+        ])
+        
+        agent = Agent(
+            name="ToolStreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test",
+            tools=[mock_tool]
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        list(agent.stream(context))
+        
+        # Should have added error message for missing tool
+        messages = context.get_messages()
+        tool_messages = [m for m in messages if isinstance(m, ToolMessage)]
+        assert len(tool_messages) == 1
+        assert "not available" in tool_messages[0].content
+
+
+class TestAsyncStreaming:
+    """Tests for async streaming functionality."""
+
+    @pytest.mark.asyncio
+    async def test_astream_yields_chunks(self, mock_model):
+        """Astream should yield content chunks as they arrive."""
+        chunk1 = MagicMock()
+        chunk1.content = "Async"
+        chunk1.tool_call_chunks = []
+        
+        chunk2 = MagicMock()
+        chunk2.content = " streaming"
+        chunk2.tool_call_chunks = []
+        
+        async def async_gen():
+            for chunk in [chunk1, chunk2]:
+                yield chunk
+        
+        mock_model.astream = MagicMock(return_value=async_gen())
+        
+        agent = Agent(
+            name="AsyncStreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test"
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        chunks = []
+        async for chunk in agent.astream(context):
+            chunks.append(chunk)
+        
+        assert chunks == ["Async", " streaming"]
+
+    @pytest.mark.asyncio
+    async def test_astream_updates_context(self, mock_model):
+        """Astream should add the complete response to context."""
+        chunk1 = MagicMock()
+        chunk1.content = "Async "
+        chunk1.tool_call_chunks = []
+        
+        chunk2 = MagicMock()
+        chunk2.content = "response"
+        chunk2.tool_call_chunks = []
+        
+        async def async_gen():
+            for chunk in [chunk1, chunk2]:
+                yield chunk
+        
+        mock_model.astream = MagicMock(return_value=async_gen())
+        
+        agent = Agent(
+            name="AsyncStreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test"
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        async for _ in agent.astream(context):
+            pass
+        
+        messages = context.get_messages()
+        assert len(messages) == 2
+        assert messages[1].content == "Async response"
+
+    @pytest.mark.asyncio
+    async def test_astream_max_iterations(self, mock_model):
+        """Astream should respect max_iterations limit."""
+        agent = Agent(
+            name="AsyncStreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test"
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        chunks = []
+        async for chunk in agent.astream(context, max_iterations=10, _current_iteration=10):
+            chunks.append(chunk)
+        
+        expected_message = "I've reached the maximum number of steps for this request. Please try breaking down your request into smaller parts."
+        assert chunks == [expected_message]
+
+    @pytest.mark.asyncio
+    async def test_astream_with_tool_calls(self, mock_model, mock_tool):
+        """Astream should handle tool calls and continue streaming."""
+        # First response with tool call
+        tool_chunk = MagicMock()
+        tool_chunk.content = ""
+        tool_chunk.tool_call_chunks = [{
+            'index': 0,
+            'id': 'call_456',
+            'name': 'test_tool',
+            'args': '{"arg": "value"}'
+        }]
+        
+        # Second response after tool
+        response_chunk = MagicMock()
+        response_chunk.content = "Async tool done"
+        response_chunk.tool_call_chunks = []
+        
+        async def first_gen():
+            yield tool_chunk
+        
+        async def second_gen():
+            yield response_chunk
+        
+        mock_model.astream = MagicMock(side_effect=[first_gen(), second_gen()])
+        
+        # Mock tool to return a ToolMessage via ainvoke (astream uses ainvoke for async tools)
+        mock_tool.ainvoke = AsyncMock(return_value=ToolMessage(
+            content="Async tool output",
+            tool_call_id="call_456"
+        ))
+        
+        agent = Agent(
+            name="AsyncToolStreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test",
+            tools=[mock_tool]
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        chunks = []
+        async for chunk in agent.astream(context):
+            chunks.append(chunk)
+        
+        assert "Async tool done" in chunks
+        mock_tool.ainvoke.assert_called_once()
+
+
+class TestStreamingEdgeCases:
+    """Tests for edge cases in streaming."""
+
+    def test_stream_no_content_attribute(self, mock_model):
+        """Stream should handle chunks without content attribute."""
+        chunk = MagicMock(spec=[])  # No content attribute
+        
+        mock_model.stream = MagicMock(return_value=iter([chunk]))
+        
+        agent = Agent(
+            name="StreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test"
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        chunks = list(agent.stream(context))
+        
+        assert chunks == []  # No content yielded
+
+    def test_stream_malformed_tool_call_json(self, mock_model, mock_tool):
+        """Stream should handle malformed tool call JSON gracefully."""
+        tool_chunk = MagicMock()
+        tool_chunk.content = ""
+        tool_chunk.tool_call_chunks = [{
+            'index': 0,
+            'id': 'call_789',
+            'name': 'test_tool',
+            'args': 'not valid json{'
+        }]
+        
+        response_chunk = MagicMock()
+        response_chunk.content = "Done"
+        response_chunk.tool_call_chunks = []
+        
+        mock_model.stream = MagicMock(side_effect=[
+            iter([tool_chunk]),
+            iter([response_chunk])
+        ])
+        
+        mock_tool.invoke = MagicMock(return_value=ToolMessage(
+            content="Output",
+            tool_call_id="call_789"
+        ))
+        
+        agent = Agent(
+            name="StreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test",
+            tools=[mock_tool]
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        # Should not raise, malformed JSON defaults to empty args
+        chunks = list(agent.stream(context))
+        assert "Done" in chunks
+
+    def test_stream_sets_last_response(self, mock_model):
+        """Stream should set _last_response attribute."""
+        chunk = MagicMock()
+        chunk.content = "Response"
+        chunk.tool_call_chunks = []
+        
+        mock_model.stream = MagicMock(return_value=iter([chunk]))
+        
+        agent = Agent(
+            name="StreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test"
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        list(agent.stream(context))
+        
+        assert hasattr(agent, '_last_response')
+        assert agent._last_response.content == "Response"
+
+    def test_stream_none_tools_with_tool_calls(self, mock_model):
+        """Stream should handle tool calls when tools is None."""
+        tool_chunk = MagicMock()
+        tool_chunk.content = ""
+        tool_chunk.tool_call_chunks = [{
+            'index': 0,
+            'id': 'call_abc',
+            'name': 'some_tool',
+            'args': '{}'
+        }]
+        
+        mock_model.stream = MagicMock(return_value=iter([tool_chunk]))
+        
+        agent = Agent(
+            name="StreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test",
+            tools=None
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        list(agent.stream(context))
+        
+        # Should return without error, model called once
+        mock_model.stream.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_astream_sets_last_response(self, mock_model):
+        """Astream should set _last_response attribute."""
+        chunk = MagicMock()
+        chunk.content = "Async Response"
+        chunk.tool_call_chunks = []
+        
+        async def async_gen():
+            yield chunk
+        
+        mock_model.astream = MagicMock(return_value=async_gen())
+        
+        agent = Agent(
+            name="AsyncStreamAgent",
+            model=mock_model,
+            system_prompt="Test",
+            description="Test"
+        )
+        
+        context = Context().add_message(HumanMessage(content="Test"))
+        async for _ in agent.astream(context):
+            pass
+        
+        assert hasattr(agent, '_last_response')
+        assert agent._last_response.content == "Async Response"
