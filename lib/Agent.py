@@ -167,6 +167,38 @@ class Agent:
                 return str(content)
             return content
 
+    async def _ahand_off_to_subagent(self, agent_name: str, task: str) -> str:
+        """Asynchronously invoke a sub-agent with a delegated subtask.
+
+        Async variant of _hand_off_to_subagent for delegating subtasks
+        to other specialized agents in the multi-agent system.
+
+        Args:
+            agent_name: Name of the agent to be invoked.
+            task: A detailed description of the subtask to be performed
+                by the invoked agent, with all necessary information.
+
+        Returns:
+            The result of the subtask performed by the invoked agent as a string.
+        """
+        if self.callable_agents is None:
+            return f"Agent {agent_name} is not available"
+
+        usable_agents = [agent for agent in self.callable_agents if agent.name == agent_name]
+
+        if len(usable_agents) == 0:
+            return f"Agent {agent_name} is not available"
+        elif len(usable_agents) > 1:
+            return f"More than one agent named {agent_name} is available"
+        else:
+            result_context = await usable_agents[0].ainvoke(Context().add_message(AIMessage(content=task)))
+            result = result_context.get_messages(last_n=1)[0]
+            content = result.content if hasattr(result, 'content') else str(result)
+            # Handle case where content might be a list
+            if isinstance(content, list):
+                return str(content)
+            return content
+
     def __str__(self) -> str:
         """Return a string representation of the agent."""
         return f"Agent: {self.name}, using model: {self.model}, with tools: {self.tools}"
@@ -227,3 +259,66 @@ class Agent:
                 context.add_message(tool_result)
 
         return self.invoke(context, max_iterations, _current_iteration + 1)
+
+    @log_agent_activity
+    async def ainvoke(self, context: Context, max_iterations: int = 10, _current_iteration: int = 0) -> Context:
+        """Asynchronously invoke the agent with the given context.
+
+        Async variant of invoke. Processes the conversation context through
+        the language model, handling any tool calls recursively until a
+        final response is generated.
+
+        Args:
+            context: The conversation context containing messages.
+            max_iterations: Maximum number of tool-use iterations to prevent
+                infinite loops. Defaults to 10.
+            _current_iteration: Internal counter for tracking recursion depth.
+                Do not set this manually.
+
+        Returns:
+            The updated context with the agent's response and any tool results.
+        """
+        if _current_iteration >= max_iterations:
+            context.add_message(AIMessage(
+                content="I've reached the maximum number of steps for this request. Please try breaking down your request into smaller parts."
+            ))
+            return context
+
+        chat_history = [SystemMessage(content=self.system_prompt), *context.get_messages()]
+
+        response = await self.model.ainvoke(chat_history)
+
+        # Add AI response to context (preserves tool call information)
+        context.add_message(response)
+
+        self._last_response = response  # For wrapper
+        if not response.tool_calls:
+            return context
+
+        # Guard against None tools (shouldn't happen if tool_calls exist)
+        if self.tools is None:
+            return context
+
+        for tool_call in response.tool_calls:
+            tool_call_id = tool_call.get('id', '')
+            fitting_tools = [tool for tool in self.tools if tool.name == tool_call['name']]
+            if len(fitting_tools) == 0:
+                context.add_message(ToolMessage(
+                    content=f"Tool {tool_call['name']} is not available",
+                    tool_call_id=tool_call_id
+                ))
+            elif len(fitting_tools) > 1:
+                context.add_message(ToolMessage(
+                    content=f"More than one tool named {tool_call['name']} is available",
+                    tool_call_id=tool_call_id
+                ))
+            else:
+                tool = fitting_tools[0]
+                # Check if tool has async invoke method and use it
+                if hasattr(tool, 'ainvoke'):
+                    tool_result = await tool.ainvoke(tool_call)
+                else:
+                    tool_result = tool.invoke(tool_call)
+                context.add_message(tool_result)
+
+        return await self.ainvoke(context, max_iterations, _current_iteration + 1)
