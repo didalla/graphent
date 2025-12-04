@@ -1,6 +1,6 @@
 [project]
 name = "graphent"
-version = "0.1.1"
+version = "0.1.2"
 description = "A multi-agent framework for building conversational AI systems"
 readme = "README.md"
 license = "MIT"
