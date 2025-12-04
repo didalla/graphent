@@ -8,6 +8,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
 from lib.Agent import Agent
+from lib.exceptions import AgentConfigurationError
+from lib.hooks import HookRegistry, HookType, HookCallback
 
 
 class AgentBuilder:
@@ -33,6 +35,7 @@ class AgentBuilder:
         _description: The agent description (required).
         _tools: List of tools for the agent.
         _callable_agents: List of sub-agents for delegation.
+        _hooks: HookRegistry for event callbacks.
     """
     
     def __init__(self):
@@ -43,6 +46,7 @@ class AgentBuilder:
         self._description: str | None = None
         self._tools: list[BaseTool] = []
         self._callable_agents: list[Agent] = []
+        self._hooks: HookRegistry = HookRegistry()
 
     def with_name(self, name: str) -> 'AgentBuilder':
         """Set the agent's name.
@@ -143,6 +147,56 @@ class AgentBuilder:
         self._callable_agents.extend(agents)
         return self
 
+    def add_hook(self, hook_type: HookType, callback: HookCallback) -> 'AgentBuilder':
+        """Add a hook callback for a specific event type.
+        
+        Args:
+            hook_type: The type of event to hook into.
+            callback: The callback function to invoke when the event occurs.
+            
+        Returns:
+            Self for method chaining.
+            
+        Example:
+            >>> builder.add_hook(HookType.ON_TOOL_CALL, my_tool_call_handler)
+        """
+        self._hooks.register(hook_type, callback)
+        return self
+
+    def add_hooks_from_object(self, obj: object) -> 'AgentBuilder':
+        """Add all hook handlers found on an object.
+        
+        Scans the object for methods decorated with hook decorators
+        (e.g., @on_tool_call, @after_tool_call) and registers them.
+        
+        Args:
+            obj: An object with decorated hook handler methods.
+            
+        Returns:
+            Self for method chaining.
+            
+        Example:
+            >>> class MyHooks:
+            ...     @on_tool_call
+            ...     def log_tool(self, event):
+            ...         print(f"Tool called: {event.tool_name}")
+            >>> builder.add_hooks_from_object(MyHooks())
+        """
+        self._hooks.register_hooks_from_object(obj)
+        return self
+
+    def with_hooks(self, hooks: HookRegistry) -> 'AgentBuilder':
+        """Set a custom HookRegistry for the agent.
+        
+        Args:
+            hooks: A pre-configured HookRegistry instance.
+            
+        Returns:
+            Self for method chaining.
+        """
+        self._hooks = hooks
+        return self
+
     def build(self) -> 'Agent':
         """Build and return the configured Agent.
         
@@ -150,17 +204,17 @@ class AgentBuilder:
             A new Agent instance with the configured settings.
             
         Raises:
-            ValueError: If any required field (name, model, system_prompt,
-                description) is not set.
+            AgentConfigurationError: If any required field (name, model,
+                system_prompt, description) is not set.
         """
         if self._name is None:
-            raise ValueError("Agent name is required")
+            raise AgentConfigurationError("Agent name is required")
         if self._model is None:
-            raise ValueError("Agent model is required")
+            raise AgentConfigurationError("Agent model is required")
         if self._system_prompt is None:
-            raise ValueError("Agent system prompt is required")
+            raise AgentConfigurationError("Agent system prompt is required")
         if self._description is None:
-            raise ValueError("Agent description is required")
+            raise AgentConfigurationError("Agent description is required")
 
         return Agent(
             name=self._name,
@@ -168,5 +222,6 @@ class AgentBuilder:
             system_prompt=self._system_prompt,
             description=self._description,
             tools=self._tools if self._tools else None,
-            callable_agents=self._callable_agents if self._callable_agents else None
+            callable_agents=self._callable_agents if self._callable_agents else None,
+            hooks=self._hooks
         )

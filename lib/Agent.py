@@ -12,6 +12,11 @@ from langchain_core.tools import StructuredTool, BaseTool
 
 from lib.Context import Context
 from lib.logging_utils import log_agent_activity
+from lib.hooks import (
+    HookRegistry, HookType, HookCallback,
+    ToolCallEvent, ToolResultEvent, ResponseEvent,
+    ModelCallEvent, ModelResultEvent, DelegationEvent
+)
 
 from pydantic import BaseModel, Field
 
@@ -79,7 +84,8 @@ class Agent:
                  system_prompt: str,
                  description: str,
                  tools: Optional[list[BaseTool]] = None,
-                 callable_agents: Optional[list['Agent']] = None):
+                 callable_agents: Optional[list['Agent']] = None,
+                 hooks: Optional[HookRegistry] = None):
         """Initialize a new Agent.
 
         Args:
@@ -89,11 +95,13 @@ class Agent:
             description: A description of the agent's capabilities (used by parent agents).
             tools: Optional list of tools the agent can use.
             callable_agents: Optional list of sub-agents this agent can delegate to.
+            hooks: Optional HookRegistry for event callbacks.
         """
         self.name = name
         self.system_prompt = Agent._set_up_system_prompt(system_prompt, callable_agents)
         self.description = description
         self.callable_agents = callable_agents
+        self._hooks = hooks or HookRegistry()
 
         if callable_agents is not None:
             if tools is None:
@@ -160,6 +168,12 @@ class Agent:
         elif len(usable_agents) > 1:
             return f"More than one agent named {agent_name} is available"
         else:
+            # Trigger delegation hook
+            self._hooks.trigger(HookType.ON_DELEGATION, DelegationEvent(
+                from_agent=self.name,
+                to_agent=agent_name,
+                task=task
+            ))
             result = usable_agents[0].invoke(Context().add_message(AIMessage(content=task))).get_messages(last_n=1)[0]
             content = result.content if hasattr(result, 'content') else str(result)
             # Handle case where content might be a list
@@ -191,6 +205,12 @@ class Agent:
         elif len(usable_agents) > 1:
             return f"More than one agent named {agent_name} is available"
         else:
+            # Trigger delegation hook
+            await self._hooks.atrigger(HookType.ON_DELEGATION, DelegationEvent(
+                from_agent=self.name,
+                to_agent=agent_name,
+                task=task
+            ))
             result_context = await usable_agents[0].ainvoke(Context().add_message(AIMessage(content=task)))
             result = result_context.get_messages(last_n=1)[0]
             content = result.content if hasattr(result, 'content') else str(result)
@@ -228,13 +248,38 @@ class Agent:
 
         chat_history = [SystemMessage(content=self.system_prompt), *context.get_messages()]
 
+        # Trigger before_model_call hook
+        self._hooks.trigger(HookType.BEFORE_MODEL_CALL, ModelCallEvent(
+            agent_name=self.name,
+            message_count=len(chat_history),
+            system_prompt=self.system_prompt
+        ))
+
         response = self.model.invoke(chat_history)
+
+        # Trigger after_model_call hook
+        response_content = response.content if hasattr(response, 'content') else ''
+        if isinstance(response_content, list):
+            response_content = str(response_content)
+        self._hooks.trigger(HookType.AFTER_MODEL_CALL, ModelResultEvent(
+            agent_name=self.name,
+            response_content=response_content,
+            has_tool_calls=bool(response.tool_calls),
+            tool_calls=response.tool_calls if response.tool_calls else []
+        ))
 
         # Add AI response to context (preserves tool call information)
         context.add_message(response)
 
         self._last_response = response # For wrapper
         if not response.tool_calls:
+            # Trigger on_response hook for final responses
+            self._hooks.trigger(HookType.ON_RESPONSE, ResponseEvent(
+                content=response_content,
+                agent_name=self.name,
+                has_tool_calls=False,
+                tool_calls=[]
+            ))
             return context
 
         # Guard against None tools (shouldn't happen if tool_calls exist)
@@ -243,6 +288,7 @@ class Agent:
 
         for tool_call in response.tool_calls:
             tool_call_id = tool_call.get('id', '')
+            tool_args = tool_call.get('args', {})
             fitting_tools = [tool for tool in self.tools if tool.name == tool_call['name']]
             if len(fitting_tools) == 0:
                 context.add_message(ToolMessage(
@@ -255,7 +301,23 @@ class Agent:
                     tool_call_id=tool_call_id
                 ))
             else:
+                # Trigger on_tool_call hook
+                self._hooks.trigger(HookType.ON_TOOL_CALL, ToolCallEvent(
+                    tool_name=tool_call['name'],
+                    tool_args=tool_args,
+                    tool_call_id=tool_call_id,
+                    agent_name=self.name
+                ))
                 tool_result = fitting_tools[0].invoke(tool_call)
+                # Trigger after_tool_call hook
+                result_content = tool_result.content if hasattr(tool_result, 'content') else str(tool_result)
+                self._hooks.trigger(HookType.AFTER_TOOL_CALL, ToolResultEvent(
+                    tool_name=tool_call['name'],
+                    tool_args=tool_args,
+                    tool_call_id=tool_call_id,
+                    agent_name=self.name,
+                    result=result_content
+                ))
                 context.add_message(tool_result)
 
         return self.invoke(context, max_iterations, _current_iteration + 1)
@@ -286,13 +348,38 @@ class Agent:
 
         chat_history = [SystemMessage(content=self.system_prompt), *context.get_messages()]
 
+        # Trigger before_model_call hook
+        await self._hooks.atrigger(HookType.BEFORE_MODEL_CALL, ModelCallEvent(
+            agent_name=self.name,
+            message_count=len(chat_history),
+            system_prompt=self.system_prompt
+        ))
+
         response = await self.model.ainvoke(chat_history)
+
+        # Trigger after_model_call hook
+        response_content = response.content if hasattr(response, 'content') else ''
+        if isinstance(response_content, list):
+            response_content = str(response_content)
+        await self._hooks.atrigger(HookType.AFTER_MODEL_CALL, ModelResultEvent(
+            agent_name=self.name,
+            response_content=response_content,
+            has_tool_calls=bool(response.tool_calls),
+            tool_calls=response.tool_calls if response.tool_calls else []
+        ))
 
         # Add AI response to context (preserves tool call information)
         context.add_message(response)
 
         self._last_response = response  # For wrapper
         if not response.tool_calls:
+            # Trigger on_response hook for final responses
+            await self._hooks.atrigger(HookType.ON_RESPONSE, ResponseEvent(
+                content=response_content,
+                agent_name=self.name,
+                has_tool_calls=False,
+                tool_calls=[]
+            ))
             return context
 
         # Guard against None tools (shouldn't happen if tool_calls exist)
@@ -301,6 +388,7 @@ class Agent:
 
         for tool_call in response.tool_calls:
             tool_call_id = tool_call.get('id', '')
+            tool_args = tool_call.get('args', {})
             fitting_tools = [tool for tool in self.tools if tool.name == tool_call['name']]
             if len(fitting_tools) == 0:
                 context.add_message(ToolMessage(
@@ -314,11 +402,27 @@ class Agent:
                 ))
             else:
                 tool = fitting_tools[0]
+                # Trigger on_tool_call hook
+                await self._hooks.atrigger(HookType.ON_TOOL_CALL, ToolCallEvent(
+                    tool_name=tool_call['name'],
+                    tool_args=tool_args,
+                    tool_call_id=tool_call_id,
+                    agent_name=self.name
+                ))
                 # Check if tool has async invoke method and use it
                 if hasattr(tool, 'ainvoke'):
                     tool_result = await tool.ainvoke(tool_call)
                 else:
                     tool_result = tool.invoke(tool_call)
+                # Trigger after_tool_call hook
+                result_content = tool_result.content if hasattr(tool_result, 'content') else str(tool_result)
+                await self._hooks.atrigger(HookType.AFTER_TOOL_CALL, ToolResultEvent(
+                    tool_name=tool_call['name'],
+                    tool_args=tool_args,
+                    tool_call_id=tool_call_id,
+                    agent_name=self.name,
+                    result=result_content
+                ))
                 context.add_message(tool_result)
 
         return await self.ainvoke(context, max_iterations, _current_iteration + 1)
@@ -356,6 +460,13 @@ class Agent:
             return context
 
         chat_history = [SystemMessage(content=self.system_prompt), *context.get_messages()]
+
+        # Trigger before_model_call hook
+        self._hooks.trigger(HookType.BEFORE_MODEL_CALL, ModelCallEvent(
+            agent_name=self.name,
+            message_count=len(chat_history),
+            system_prompt=self.system_prompt
+        ))
 
         # Collect the full response while streaming
         full_content = ""
@@ -406,7 +517,22 @@ class Agent:
         context.add_message(response)
         self._last_response = response
 
+        # Trigger after_model_call hook
+        self._hooks.trigger(HookType.AFTER_MODEL_CALL, ModelResultEvent(
+            agent_name=self.name,
+            response_content=full_content,
+            has_tool_calls=bool(response.tool_calls),
+            tool_calls=response.tool_calls if response.tool_calls else []
+        ))
+
         if not response.tool_calls:
+            # Trigger on_response hook for final responses
+            self._hooks.trigger(HookType.ON_RESPONSE, ResponseEvent(
+                content=full_content,
+                agent_name=self.name,
+                has_tool_calls=False,
+                tool_calls=[]
+            ))
             return context
 
         # Guard against None tools
@@ -416,6 +542,7 @@ class Agent:
         # Process tool calls
         for tool_call in response.tool_calls:
             tool_call_id = tool_call.get('id', '')
+            tool_args = tool_call.get('args', {})
             fitting_tools = [tool for tool in self.tools if tool.name == tool_call['name']]
             if len(fitting_tools) == 0:
                 context.add_message(ToolMessage(
@@ -428,7 +555,23 @@ class Agent:
                     tool_call_id=tool_call_id
                 ))
             else:
+                # Trigger on_tool_call hook
+                self._hooks.trigger(HookType.ON_TOOL_CALL, ToolCallEvent(
+                    tool_name=tool_call['name'],
+                    tool_args=tool_args,
+                    tool_call_id=tool_call_id,
+                    agent_name=self.name
+                ))
                 tool_result = fitting_tools[0].invoke(tool_call)
+                # Trigger after_tool_call hook
+                result_content = tool_result.content if hasattr(tool_result, 'content') else str(tool_result)
+                self._hooks.trigger(HookType.AFTER_TOOL_CALL, ToolResultEvent(
+                    tool_name=tool_call['name'],
+                    tool_args=tool_args,
+                    tool_call_id=tool_call_id,
+                    agent_name=self.name,
+                    result=result_content
+                ))
                 context.add_message(tool_result)
 
         # Recursively continue streaming after tool calls
@@ -465,6 +608,13 @@ class Agent:
             return
 
         chat_history = [SystemMessage(content=self.system_prompt), *context.get_messages()]
+
+        # Trigger before_model_call hook
+        await self._hooks.atrigger(HookType.BEFORE_MODEL_CALL, ModelCallEvent(
+            agent_name=self.name,
+            message_count=len(chat_history),
+            system_prompt=self.system_prompt
+        ))
 
         # Collect the full response while streaming
         full_content = ""
@@ -515,7 +665,22 @@ class Agent:
         context.add_message(response)
         self._last_response = response
 
+        # Trigger after_model_call hook
+        await self._hooks.atrigger(HookType.AFTER_MODEL_CALL, ModelResultEvent(
+            agent_name=self.name,
+            response_content=full_content,
+            has_tool_calls=bool(response.tool_calls),
+            tool_calls=response.tool_calls if response.tool_calls else []
+        ))
+
         if not response.tool_calls:
+            # Trigger on_response hook for final responses
+            await self._hooks.atrigger(HookType.ON_RESPONSE, ResponseEvent(
+                content=full_content,
+                agent_name=self.name,
+                has_tool_calls=False,
+                tool_calls=[]
+            ))
             return
 
         # Guard against None tools
@@ -525,6 +690,7 @@ class Agent:
         # Process tool calls
         for tool_call in response.tool_calls:
             tool_call_id = tool_call.get('id', '')
+            tool_args = tool_call.get('args', {})
             fitting_tools = [tool for tool in self.tools if tool.name == tool_call['name']]
             if len(fitting_tools) == 0:
                 context.add_message(ToolMessage(
@@ -538,10 +704,26 @@ class Agent:
                 ))
             else:
                 tool = fitting_tools[0]
+                # Trigger on_tool_call hook
+                await self._hooks.atrigger(HookType.ON_TOOL_CALL, ToolCallEvent(
+                    tool_name=tool_call['name'],
+                    tool_args=tool_args,
+                    tool_call_id=tool_call_id,
+                    agent_name=self.name
+                ))
                 if hasattr(tool, 'ainvoke'):
                     tool_result = await tool.ainvoke(tool_call)
                 else:
                     tool_result = tool.invoke(tool_call)
+                # Trigger after_tool_call hook
+                result_content = tool_result.content if hasattr(tool_result, 'content') else str(tool_result)
+                await self._hooks.atrigger(HookType.AFTER_TOOL_CALL, ToolResultEvent(
+                    tool_name=tool_call['name'],
+                    tool_args=tool_args,
+                    tool_call_id=tool_call_id,
+                    agent_name=self.name,
+                    result=result_content
+                ))
                 context.add_message(tool_result)
 
         # Recursively continue streaming after tool calls

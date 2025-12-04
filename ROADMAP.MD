@@ -14,23 +14,25 @@ Added `stream()` and `astream()` methods to the Agent class for chunk-wise respo
 - Proper context management with complete response preservation
 - Both synchronous (`stream()`) and asynchronous (`astream()`) variants
 
+2. ✅ Event Hooks/Callbacks
+Added hooks for monitoring agent execution with decorator-based registration:
+- `@on_tool_call` - Before a tool is called (receives ToolCallEvent with tool_name, tool_args, tool_call_id, agent_name)
+- `@after_tool_call` - After a tool returns (receives ToolResultEvent with tool info and result)
+- `@on_response` - When the model generates a final response (receives ResponseEvent)
+- `@before_model_call` - Before invoking the model (receives ModelCallEvent)
+- `@after_model_call` - After the model returns (receives ModelResultEvent)
+- `@on_delegation` - When delegating to a sub-agent (receives DelegationEvent with from_agent, to_agent, task)
+
+Features:
+- HookRegistry for managing callbacks
+- Support for both sync and async hooks
+- AgentBuilder integration with `add_hook()`, `add_hooks_from_object()`, and `with_hooks()`
+- Exception-safe: hook errors are logged but don't break the main flow
+
 ## Future Features
 
 1. Serialization/Deserialization
 Add ability to save/load agent configurations and conversation contexts.
 
-2. Event Hooks/Callbacks
-Add hooks for monitoring:
-
-@on_tool_cool
-
-@on_response
-
-@before_model_call
-
-@after_model_call
-
-@on_delegation
-
-3. Token Counting/Cost Tracking
+2. Token Counting/Cost Tracking
 Track API usage for cost monitoring.
