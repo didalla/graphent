@@ -12,10 +12,8 @@ from typing import Optional
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from lib.AgentBuilder import AgentBuilder
-from lib.Context import Context
-from lib.logging_utils import AgentLoggerConfig
-from tools.map_tool import get_coords, get_weather
+from lib import AgentBuilder, Context, AgentLoggerConfig
+from lib.tools import get_coords, get_weather
 
 
 # ANSI color codes for terminal styling

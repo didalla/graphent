@@ -1,0 +1,7 @@
+include LICENSE
+include README.md
+include CHANGELOG.md
+recursive-include lib *.py py.typed
+recursive-include lib/tools *.py
+recursive-include lib/agents *.py
+

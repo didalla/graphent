@@ -5,19 +5,22 @@ tracking agent activity during conversations.
 """
 
 import asyncio
-import inspect
 import logging
 import os
+import threading
 from functools import wraps
 from typing import Any, Callable, Dict
 
 from lib.Context import Context
 
+# Module-level logger
+_logger = logging.getLogger(__name__)
+
 #: Custom log level for agent activity (between INFO and WARNING)
 LOG_LEVEL = 25
 
 #: Maximum length for truncated log output
-TRUNCATE_LIMIT = int(os.environ.get("TRUNCATE_LIMIT", 250))
+TRUNCATE_LIMIT = int(os.environ.get("GRAPHENT_TRUNCATE_LIMIT", os.environ.get("TRUNCATE_LIMIT", 250)))
 
 
 class AgentLoggerConfig:
@@ -28,44 +31,47 @@ class AgentLoggerConfig:
     
     Attributes:
         _setup_done: Flag to prevent duplicate setup.
-        _last_returned_result: Cache to avoid duplicate log entries.
+        _last_returned_response_id: Cache to avoid duplicate log entries.
+        _lock: Thread lock for thread-safe operations.
     """
     _setup_done = False
     _last_returned_response_id = None
+    _lock = threading.Lock()
 
     @staticmethod
     def setup(level: int = LOG_LEVEL, log_file: str | None = None) -> None:
         """Set up logging for agent activity.
         
         Configures the root logger with a timestamped format. Can log
-        to either console or a file.
-        
+        to either console or a file. Thread-safe.
+
         Args:
             level: The logging level to use (default: LOG_LEVEL).
             log_file: Optional path to a log file. If None, logs to console.
         """
-        if AgentLoggerConfig._setup_done:
-            return
+        with AgentLoggerConfig._lock:
+            if AgentLoggerConfig._setup_done:
+                return
 
-        formatter = logging.Formatter(
-            '%(asctime)s | %(message)s',
-            datefmt='%H:%M:%S'
-        )
+            formatter = logging.Formatter(
+                '%(asctime)s | %(message)s',
+                datefmt='%H:%M:%S'
+            )
 
-        root_logger = logging.getLogger()
-        root_logger.setLevel(level)
+            root_logger = logging.getLogger()
+            root_logger.setLevel(level)
 
-        if log_file:
-            file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
-            file_handler.setFormatter(formatter)
-            root_logger.addHandler(file_handler)
+            if log_file:
+                file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+                file_handler.setFormatter(formatter)
+                root_logger.addHandler(file_handler)
 
-        else:
-            console_handler = logging.StreamHandler()
-            console_handler.setFormatter(formatter)
-            root_logger.addHandler(console_handler)
+            else:
+                console_handler = logging.StreamHandler()
+                console_handler.setFormatter(formatter)
+                root_logger.addHandler(console_handler)
 
-        AgentLoggerConfig._setup_done = True
+            AgentLoggerConfig._setup_done = True
 
 
 def log_agent_activity(func: Callable) -> Callable:
@@ -115,7 +121,7 @@ def log_agent_activity(func: Callable) -> Callable:
             last_input = "<error reading context>"
             last_input_type = "<error>"
 
-        logging.log(LOG_LEVEL, f"START {agent_name} METHOD {method_name} WITH {last_input_type}:\"{truncate(last_input)}\"")
+        _logger.log(LOG_LEVEL, f"START {agent_name} METHOD {method_name} WITH {last_input_type}:\"{truncate(last_input)}\"")
         return agent_name, method_name
 
     def _log_end(self, agent_name, method_name):
@@ -133,15 +139,16 @@ def log_agent_activity(func: Callable) -> Callable:
             output_tokens = _get(token_usage, "completion_tokens", "<error>") if token_usage else "<error>"
             total_tokens = _get(token_usage, "total_tokens", "<error>") if token_usage else "<error>"
 
-            if resp_id != AgentLoggerConfig._last_returned_response_id:
-                logging.log(LOG_LEVEL, f"END {agent_name} METHODE {method_name} WITH {resp_content_type}: {truncate(resp_content)}")
-                if token_usage:
-                    logging.log(LOG_LEVEL, f"   Cost: {input_tokens} input tokens, {output_tokens} output tokens, {total_tokens} total tokens")
-                else:
-                    logging.log(LOG_LEVEL, f"   Cost: Token usage not available.")
-                AgentLoggerConfig._last_returned_response_id = resp_id
+            with AgentLoggerConfig._lock:
+                if resp_id != AgentLoggerConfig._last_returned_response_id:
+                    _logger.log(LOG_LEVEL, f"END {agent_name} METHOD {method_name} WITH {resp_content_type}: {truncate(resp_content)}")
+                    if token_usage:
+                        _logger.log(LOG_LEVEL, f"   Cost: {input_tokens} input tokens, {output_tokens} output tokens, {total_tokens} total tokens")
+                    else:
+                        _logger.log(LOG_LEVEL, f"   Cost: Token usage not available.")
+                    AgentLoggerConfig._last_returned_response_id = resp_id
         else:
-            logging.log(LOG_LEVEL, f"ERROR: Something went wrong! No response object found for {agent_name} method {method_name}.")
+            _logger.log(LOG_LEVEL, f"ERROR: Something went wrong! No response object found for {agent_name} method {method_name}.")
 
     if asyncio.iscoroutinefunction(func):
         @wraps(func)
@@ -154,59 +161,9 @@ def log_agent_activity(func: Callable) -> Callable:
 
     @wraps(func)
     def wrapper(self, *args, **kwargs):
-        agent_name = getattr(self, "name", "Unknown Agent")
-        method_name = func.__name__
-
-        inputs = format_args(args)
-
-        last = None
-        last_input = "<no input>"
-        last_input_type = "<none>"
-        try:
-            ctx = inputs["context"]
-
-            if isinstance(ctx, Context):
-                msgs = ctx.get_messages()
-            elif isinstance(ctx, list):
-                msgs = ctx
-            else:
-                msgs = []
-
-            if msgs:
-                last = msgs[-1]
-                last_input = getattr(last, "content", str(last))
-                last_input_type = type(last).__name__
-        except Exception:
-            last_input = "<error reading context>"
-            last_input_type = "<error>"
-
-        logging.log(LOG_LEVEL, f"START {agent_name} METHOD {method_name} WITH {last_input_type}:\"{truncate(last_input)}\"")
-
+        agent_name, method_name = _log_start(self, args)
         result = func(self, *args, **kwargs)
-
-        response = getattr(self, "_last_response", None)
-        if response:
-            resp_metadata = _get(response, "response_metadata", None)
-            resp_content = _get(response, "content", "<error>")
-            resp_content_type = type(resp_content).__name__
-
-            resp_id = _get(resp_metadata, "id", "<error reading id>") if resp_metadata else "<error reading id>"
-
-            token_usage = _get(resp_metadata, "token_usage", None) if resp_metadata else None
-            input_tokens = _get(token_usage, "prompt_tokens", "<error>") if token_usage else "<error>"
-            output_tokens = _get(token_usage, "completion_tokens", "<error>") if token_usage else "<error>"
-            total_tokens = _get(token_usage, "total_tokens", "<error>") if token_usage else "<error>"
-
-            if resp_id != AgentLoggerConfig._last_returned_response_id:
-                logging.log(LOG_LEVEL, f"END {agent_name} METHODE {method_name} WITH {resp_content_type}: {truncate(resp_content)}")
-                if token_usage:
-                    logging.log(LOG_LEVEL, f"   Cost: {input_tokens} input tokens, {output_tokens} output tokens, {total_tokens} total tokens")
-                else:
-                    logging.log(LOG_LEVEL, f"   Cost: Token usage not available.")
-                AgentLoggerConfig._last_returned_response_id = resp_id
-        else:
-            logging.log(LOG_LEVEL, f"ERROR: Something went wrong! No response object found for {agent_name} method {method_name}.")
-
+        _log_end(self, agent_name, method_name)
         return result
 
     return wrapper

@@ -11,6 +11,7 @@ from langchain_core.tools import BaseTool
 
 from lib.AgentBuilder import AgentBuilder
 from lib.Agent import Agent
+from lib.exceptions import AgentConfigurationError
 
 
 # ============================================================================
@@ -357,46 +358,46 @@ class TestBuild:
         assert agent.description == "A test agent for testing"
 
     def test_build_without_name_raises(self, mock_model):
-        """build without name should raise ValueError."""
+        """build without name should raise AgentConfigurationError."""
         builder = (AgentBuilder()
                    .with_model(mock_model)
                    .with_system_prompt("Test")
                    .with_description("Test"))
         
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(AgentConfigurationError) as exc_info:
             builder.build()
         assert "name" in str(exc_info.value).lower()
 
     def test_build_without_model_raises(self):
-        """build without model should raise ValueError."""
+        """build without model should raise AgentConfigurationError."""
         builder = (AgentBuilder()
                    .with_name("Test")
                    .with_system_prompt("Test")
                    .with_description("Test"))
         
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(AgentConfigurationError) as exc_info:
             builder.build()
         assert "model" in str(exc_info.value).lower()
 
     def test_build_without_system_prompt_raises(self, mock_model):
-        """build without system_prompt should raise ValueError."""
+        """build without system_prompt should raise AgentConfigurationError."""
         builder = (AgentBuilder()
                    .with_name("Test")
                    .with_model(mock_model)
                    .with_description("Test"))
         
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(AgentConfigurationError) as exc_info:
             builder.build()
         assert "system prompt" in str(exc_info.value).lower()
 
     def test_build_without_description_raises(self, mock_model):
-        """build without description should raise ValueError."""
+        """build without description should raise AgentConfigurationError."""
         builder = (AgentBuilder()
                    .with_name("Test")
                    .with_model(mock_model)
                    .with_system_prompt("Test"))
         
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(AgentConfigurationError) as exc_info:
             builder.build()
         assert "description" in str(exc_info.value).lower()
 
@@ -527,9 +528,9 @@ class TestEdgeCases:
     """Tests for edge cases."""
 
     def test_build_empty_builder_raises(self):
-        """Building an empty builder should raise ValueError."""
+        """Building an empty builder should raise AgentConfigurationError."""
         builder = AgentBuilder()
-        with pytest.raises(ValueError):
+        with pytest.raises(AgentConfigurationError):
             builder.build()
 
     def test_special_characters_in_name(self, mock_model):

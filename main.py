@@ -3,10 +3,8 @@ import os
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 
-from lib.AgentBuilder import AgentBuilder
-from lib.Context import Context
-from lib.logging_utils import AgentLoggerConfig
-from tools.map_tool import get_coords, get_weather
+from lib import AgentBuilder, Context, AgentLoggerConfig
+from lib.tools import get_coords, get_weather
 
 AgentLoggerConfig.setup(log_file=os.environ.get("PATH_TO_FILE", None))
 

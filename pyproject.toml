@@ -2,14 +2,68 @@
 name = "graphent"
 version = "0.1.0"
 description = "A multi-agent framework for building conversational AI systems"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.13"
+authors = [
+    {name = "didalla"}
+]
+maintainers = [
+    {name = "didalla"}
+]
+keywords = [
+    "agents",
+    "multi-agent",
+    "llm",
+    "ai",
+    "langchain",
+    "chatbot",
+    "conversational-ai",
+    "framework",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
 dependencies = [
     "anyio>=4.11.0",
     "langchain>=1.0.3",
     "langchain-openai>=1.1.0",
-    "pytest>=9.0.1",
     "requests>=2.28.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.1",
+    "build>=1.0.0",
+    "twine>=5.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/didalla/graphent"
+Repository = "https://github.com/didalla/graphent"
+Documentation = "https://github.com/didalla/graphent#readme"
+Issues = "https://github.com/didalla/graphent/issues"
+Changelog = "https://github.com/didalla/graphent/blob/main/CHANGELOG.md"
+
 [project.scripts]
 graphent = "cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["lib*"]
+
+[tool.setuptools.package-data]
+lib = ["py.typed"]
+
