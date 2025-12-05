@@ -1,6 +1,5 @@
 """Tests for the todo functionality in Context and todo tools."""
 
-import pytest
 from lib.Context import Context, Todo
 from lib.tools.todo_tool import create_todo_tools
 
