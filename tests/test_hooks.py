@@ -7,9 +7,9 @@ import asyncio
 from lib.hooks import (
     HookType, HookRegistry,
     ToolCallEvent, ToolResultEvent, ResponseEvent,
-    ModelCallEvent, ModelResultEvent, DelegationEvent,
+    ModelCallEvent, ModelResultEvent, DelegationEvent, TodoChangeEvent,
     on_tool_call, after_tool_call, on_response,
-    before_model_call, after_model_call, on_delegation
+    before_model_call, after_model_call, on_delegation, on_todo_change
 )
 
 
@@ -96,6 +96,45 @@ class TestEventDataClasses:
         assert event.to_agent == "SubAgent"
         assert event.task == "Do something"
 
+    def test_todo_change_event_add(self):
+        """Test TodoChangeEvent for add action."""
+        event = TodoChangeEvent(
+            action="add",
+            todo_id=1,
+            title="Test Todo",
+            description="A test todo item",
+            state="pending"
+        )
+        assert event.action == "add"
+        assert event.todo_id == 1
+        assert event.title == "Test Todo"
+        assert event.description == "A test todo item"
+        assert event.state == "pending"
+        assert event.old_state is None
+
+    def test_todo_change_event_update(self):
+        """Test TodoChangeEvent for update action with state change."""
+        event = TodoChangeEvent(
+            action="update",
+            todo_id=1,
+            title="Updated Todo",
+            state="in_progress",
+            old_state="pending"
+        )
+        assert event.action == "update"
+        assert event.state == "in_progress"
+        assert event.old_state == "pending"
+
+    def test_todo_change_event_delete(self):
+        """Test TodoChangeEvent for delete action."""
+        event = TodoChangeEvent(
+            action="delete",
+            todo_id=1,
+            title="Deleted Todo"
+        )
+        assert event.action == "delete"
+        assert event.todo_id == 1
+
 
 class TestHookDecorators:
     """Tests for hook decorators."""
@@ -149,6 +188,16 @@ class TestHookDecorators:
             pass
 
         assert my_handler._hook_type == HookType.ON_DELEGATION
+
+    def test_on_todo_change_decorator(self):
+        """Test on_todo_change decorator marks function correctly."""
+        @on_todo_change
+        def my_handler(event):
+            pass
+
+        assert hasattr(my_handler, '_is_hook')
+        assert my_handler._is_hook is True
+        assert my_handler._hook_type == HookType.ON_TODO_CHANGE
 
     def test_decorated_function_still_callable(self):
         """Test that decorated functions can still be called."""

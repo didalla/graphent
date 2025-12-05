@@ -26,6 +26,7 @@ class HookType(Enum):
     BEFORE_MODEL_CALL = "before_model_call"
     AFTER_MODEL_CALL = "after_model_call"
     ON_DELEGATION = "on_delegation"
+    ON_TODO_CHANGE = "on_todo_change"
 
 
 @dataclass
@@ -120,6 +121,26 @@ class DelegationEvent:
     from_agent: str
     to_agent: str
     task: str
+
+
+@dataclass
+class TodoChangeEvent:
+    """Event data for todo change hooks.
+
+    Attributes:
+        action: The type of change (add, update, delete).
+        todo_id: The ID of the todo that changed.
+        title: The title of the todo (for add/update).
+        description: The description of the todo (for add/update).
+        state: The state of the todo (for add/update).
+        old_state: The previous state (for update, when state changed).
+    """
+    action: str  # "add", "update", "delete"
+    todo_id: int
+    title: Optional[str] = None
+    description: Optional[str] = None
+    state: Optional[str] = None
+    old_state: Optional[str] = None
 
 
 # Type alias for hook callbacks
@@ -227,6 +248,18 @@ Example:
     >>> @on_delegation
     ... def log_delegation(event: DelegationEvent):
     ...     print(f"Agent {event.from_agent} delegating to {event.to_agent}")
+"""
+
+on_todo_change = _create_hook_decorator(HookType.ON_TODO_CHANGE)
+"""Decorator to mark a method as an on_todo_change hook handler.
+
+The decorated method will receive a TodoChangeEvent object with information
+about the todo list change.
+
+Example:
+    >>> @on_todo_change
+    ... def log_todo_change(event: TodoChangeEvent):
+    ...     print(f"Todo {event.action}: {event.title}")
 """
 
 

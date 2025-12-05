@@ -33,6 +33,7 @@ from lib.hooks import (
     ModelCallEvent,
     ModelResultEvent,
     DelegationEvent,
+    TodoChangeEvent,
     # Hook decorators
     on_tool_call,
     after_tool_call,
@@ -40,6 +41,7 @@ from lib.hooks import (
     before_model_call,
     after_model_call,
     on_delegation,
+    on_todo_change,
 )
 
 # Configuration

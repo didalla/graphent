@@ -13,7 +13,7 @@ from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, System
 from langchain_openai import ChatOpenAI
 
 from lib import AgentBuilder, Context, AgentLoggerConfig
-from lib.tools import get_coords, get_weather
+from lib.tools import get_coords, get_weather, create_todo_tools
 
 
 # ANSI color codes for terminal styling
@@ -188,8 +188,10 @@ class CLI:
                               .with_system_prompt("You are qwarki, a helpful agent. Be concise but friendly in your responses.")
                               .with_description("The main agent can call other agents."))
 
+        # Create todo tools bound to self.context (uses lambda to always get current context)
         self.agent = (main_agent_builder
                       .add_agent(weather_agent)
+                      .add_tools(create_todo_tools(lambda: self.context))
                       .build())
 
         self.context = Context()

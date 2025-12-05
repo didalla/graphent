@@ -5,6 +5,7 @@ tracking agent activity during conversations.
 """
 
 import asyncio
+import inspect
 import logging
 import os
 import threading
@@ -150,7 +151,7 @@ def log_agent_activity(func: Callable) -> Callable:
         else:
             _logger.log(LOG_LEVEL, f"ERROR: Something went wrong! No response object found for {agent_name} method {method_name}.")
 
-    if asyncio.iscoroutinefunction(func):
+    if inspect.iscoroutinefunction(func):
         @wraps(func)
         async def async_wrapper(self, *args, **kwargs):
             agent_name, method_name = _log_start(self, args)

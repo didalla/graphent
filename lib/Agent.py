@@ -25,6 +25,29 @@ from pydantic import BaseModel, Field
 # System Prompt Templates
 # ============================================================================
 
+# Names of todo tools to detect if they're bound to the agent
+TODO_TOOL_NAMES = {"add_todo", "get_todos", "update_todo", "delete_todo"}
+
+TODO_TOOLS_INSTRUCTION = """
+
+# Todo List Tools
+You have access to todo list tools for planning and task management. Use them to:
+- Break down every tasks into smaller, manageable subtasks, even if it is just one step.
+- Track progress on work, track each step of the process, and keep track of any blockers.
+- Allways Organize your work before starting execution
+
+When working on requests:
+1. First, create todos to plan out the steps
+2. Update todo states as you progress (pending → in_progress → done)
+3. Use the todo list to ensure you don't miss any steps
+4. Before answering to the user, all todos need to be marked as done
+"""
+
+TODO_LIST_STATE_HEADER = """
+## Current Todo List State
+{todos_summary}
+"""
+
 AGENT_DELEGATION_PROMPT_HEADER = """
 Planning: If you don't have information for a tool call, check if you can use a tool or a subagent to get the information you need.
 You can use a tool and then react to its output, or you can call a subagent to perform a specific task.
@@ -116,6 +139,12 @@ class Agent:
         else:
             self.tools = tools
 
+        # Detect if todo tools are bound to this agent
+        self._has_todo_tools = False
+        if self.tools is not None:
+            tool_names = {tool.name for tool in self.tools}
+            self._has_todo_tools = bool(TODO_TOOL_NAMES & tool_names)
+
         if self.tools is not None:
             self.model = model.bind_tools(self.tools)
         else:
@@ -143,6 +172,27 @@ class Agent:
                     description=agent.description
                 )
         return system_prompt
+
+    def _build_system_prompt_with_context(self, context: Context) -> str:
+        """Build the complete system prompt with dynamic context like todos.
+
+        Args:
+            context: The current conversation context containing todos.
+
+        Returns:
+            The complete system prompt with todo tools instruction and state injected.
+        """
+        prompt = self.system_prompt
+
+        # Inject todo tools instruction if the agent has todo tools
+        if self._has_todo_tools:
+            prompt += TODO_TOOLS_INSTRUCTION
+            # Also inject current todo list state
+            prompt += TODO_LIST_STATE_HEADER.format(
+                todos_summary=context.get_todos_summary()
+            )
+
+        return prompt
 
     def _hand_off_to_subagent(self, agent_name: str, task: str) -> str:
         """Invoke a sub-agent with a delegated subtask.
@@ -246,13 +296,14 @@ class Agent:
             ))
             return context
 
-        chat_history = [SystemMessage(content=self.system_prompt), *context.get_messages()]
+        current_system_prompt = self._build_system_prompt_with_context(context)
+        chat_history = [SystemMessage(content=current_system_prompt), *context.get_messages()]
 
         # Trigger before_model_call hook
         self._hooks.trigger(HookType.BEFORE_MODEL_CALL, ModelCallEvent(
             agent_name=self.name,
             message_count=len(chat_history),
-            system_prompt=self.system_prompt
+            system_prompt=current_system_prompt
         ))
 
         response = self.model.invoke(chat_history)
@@ -346,13 +397,14 @@ class Agent:
             ))
             return context
 
-        chat_history = [SystemMessage(content=self.system_prompt), *context.get_messages()]
+        current_system_prompt = self._build_system_prompt_with_context(context)
+        chat_history = [SystemMessage(content=current_system_prompt), *context.get_messages()]
 
         # Trigger before_model_call hook
         await self._hooks.atrigger(HookType.BEFORE_MODEL_CALL, ModelCallEvent(
             agent_name=self.name,
             message_count=len(chat_history),
-            system_prompt=self.system_prompt
+            system_prompt=current_system_prompt
         ))
 
         response = await self.model.ainvoke(chat_history)
@@ -459,13 +511,14 @@ class Agent:
             yield max_iter_message
             return context
 
-        chat_history = [SystemMessage(content=self.system_prompt), *context.get_messages()]
+        current_system_prompt = self._build_system_prompt_with_context(context)
+        chat_history = [SystemMessage(content=current_system_prompt), *context.get_messages()]
 
         # Trigger before_model_call hook
         self._hooks.trigger(HookType.BEFORE_MODEL_CALL, ModelCallEvent(
             agent_name=self.name,
             message_count=len(chat_history),
-            system_prompt=self.system_prompt
+            system_prompt=current_system_prompt
         ))
 
         # Collect the full response while streaming
@@ -607,13 +660,14 @@ class Agent:
             yield max_iter_message
             return
 
-        chat_history = [SystemMessage(content=self.system_prompt), *context.get_messages()]
+        current_system_prompt = self._build_system_prompt_with_context(context)
+        chat_history = [SystemMessage(content=current_system_prompt), *context.get_messages()]
 
         # Trigger before_model_call hook
         await self._hooks.atrigger(HookType.BEFORE_MODEL_CALL, ModelCallEvent(
             agent_name=self.name,
             message_count=len(chat_history),
-            system_prompt=self.system_prompt
+            system_prompt=current_system_prompt
         ))
 
         # Collect the full response while streaming
