@@ -5,6 +5,11 @@ Graphent CLI - A beautiful command-line interface for multi-turn agent conversat
 
 import os
 import sys
+import warnings
+
+# Suppress Pydantic V1 compatibility warning with Python 3.14+
+warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality isn't compatible")
+
 import readline  # Enables arrow key navigation and history in input
 from datetime import datetime
 from typing import Optional
@@ -12,7 +17,13 @@ from typing import Optional
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from lib import AgentBuilder, Context, AgentLoggerConfig
+from lib import (
+    AgentBuilder, Context, AgentLoggerConfig, HookRegistry, HookType,
+    ToolCallEvent, ToolResultEvent, ResponseEvent,
+    ModelCallEvent, ModelResultEvent, DelegationEvent, TodoChangeEvent,
+    on_tool_call, after_tool_call, on_response,
+    before_model_call, after_model_call, on_delegation, on_todo_change
+)
 from lib.tools import get_coords, get_weather, create_todo_tools
 
 
@@ -29,6 +40,73 @@ class Colors:
     ITALIC = '\033[3m'
     UNDERLINE = '\033[4m'
     RESET = '\033[0m'
+    MAGENTA = '\033[35m'
+
+
+class CLIHooksHandler:
+    """Hook handler for displaying agent state in the CLI."""
+
+    def __init__(self, colors: type):
+        self.colors = colors
+        self._indent = "  "
+
+    @on_tool_call
+    def handle_tool_call(self, event: ToolCallEvent):
+        """Display when a tool is being called."""
+        print(f"\n{self._indent}{self.colors.YELLOW}🔧 Tool Call:{self.colors.RESET} "
+              f"{self.colors.BOLD}{event.tool_name}{self.colors.RESET}")
+        if event.tool_args:
+            args_display = ', '.join(f"{k}={repr(v)[:50]}" for k, v in event.tool_args.items())
+            print(f"{self._indent}   {self.colors.DIM}Args: {args_display}{self.colors.RESET}")
+
+    @after_tool_call
+    def handle_tool_result(self, event: ToolResultEvent):
+        """Display tool result summary."""
+        result_preview = str(event.result)[:100]
+        if len(str(event.result)) > 100:
+            result_preview += "..."
+        print(f"{self._indent}   {self.colors.DIM}Result: {result_preview}{self.colors.RESET}")
+
+    @before_model_call
+    def handle_before_model(self, event: ModelCallEvent):
+        """Display which agent is currently thinking."""
+        print(f"\n{self._indent}{self.colors.MAGENTA}🤖 Agent:{self.colors.RESET} "
+              f"{self.colors.BOLD}{event.agent_name}{self.colors.RESET} "
+              f"{self.colors.DIM}(processing {event.message_count} messages){self.colors.RESET}")
+
+    @on_delegation
+    def handle_delegation(self, event: DelegationEvent):
+        """Display when delegation happens between agents."""
+        print(f"\n{self._indent}{self.colors.CYAN}🔀 Delegation:{self.colors.RESET} "
+              f"{self.colors.BOLD}{event.from_agent}{self.colors.RESET} → "
+              f"{self.colors.BOLD}{event.to_agent}{self.colors.RESET}")
+        task_preview = event.task[:80] + "..." if len(event.task) > 80 else event.task
+        print(f"{self._indent}   {self.colors.DIM}Task: {task_preview}{self.colors.RESET}")
+
+    @on_todo_change
+    def handle_todo_change(self, event: TodoChangeEvent):
+        """Display todo list changes."""
+        if event.action == "add":
+            icon = "➕"
+            action_text = f"Added todo #{event.todo_id}"
+            details = f'"{event.title}"'
+        elif event.action == "update":
+            icon = "✏️ "
+            if event.old_state and event.old_state != event.state:
+                action_text = f"Updated todo #{event.todo_id}"
+                details = f"{event.old_state} → {event.state}"
+            else:
+                action_text = f"Updated todo #{event.todo_id}"
+                details = f'"{event.title}"' if event.title else ""
+        elif event.action == "delete":
+            icon = "🗑️ "
+            action_text = f"Deleted todo #{event.todo_id}"
+            details = f'"{event.title}"' if event.title else ""
+        else:
+            return
+
+        print(f"{self._indent}{self.colors.GREEN}{icon} {action_text}{self.colors.RESET} "
+              f"{self.colors.DIM}{details}{self.colors.RESET}")
 
 
 class CLI:
@@ -47,6 +125,9 @@ class CLI:
         self.agent = None
         self.model = None
         self.conversation_start: Optional[datetime] = None
+        self._hooks_handler = CLIHooksHandler(Colors)
+        self._hooks = HookRegistry()
+        self._hooks.register_hooks_from_object(self._hooks_handler)
         self._setup_readline()
 
     def _setup_readline(self):
@@ -65,18 +146,17 @@ class CLI:
     def _print_header(self):
         """Print the CLI header/banner."""
         banner = f"""
-{Colors.CYAN}{Colors.BOLD}╔══════════════════════════════════════════════════════════════╗
-║                                                              ║
-║   {Colors.GREEN}▄████  ██▀███   ▄▄▄       ██▓███   ██░ ██ ▓█████  ███▄    █ ▄▄▄█████▓{Colors.CYAN}║
-║   {Colors.GREEN}██▒ ▀█▒▓██ ▒ ██▒▒████▄    ▓██░  ██▒▓██░ ██▒▓█   ▀  ██ ▀█   █ ▓  ██▒ ▓▒{Colors.CYAN}║
-║   {Colors.GREEN}▒██░▄▄▄░▓██ ░▄█ ▒▒██  ▀█▄  ▓██░ ██▓▒▒██▀▀██░▒███   ▓██  ▀█ ██▒▒ ▓██░ ▒░{Colors.CYAN}║
-║   {Colors.GREEN}░▓█  ██▓▒██▀▀█▄  ░██▄▄▄▄██ ▒██▄█▓▒ ▒░▓█ ░██ ▒▓█  ▄ ▓██▒  ▐▌██▒░ ▓██▓ ░ {Colors.CYAN}║
-║   {Colors.GREEN}░▒▓███▀▒░██▓ ▒██▒ ▓█   ▓██▒▒██▒ ░  ░░▓█▒░██▓░▒████▒▒██░   ▓██░  ▒██▒ ░ {Colors.CYAN}║
-║   {Colors.GREEN} ░▒   ▒ ░ ▒▓ ░▒▓░ ▒▒   ▓▒█░▒▓▒░ ░  ░ ▒ ░░▒░▒░░ ▒░ ░░ ▒░   ▒ ▒   ▒ ░░   {Colors.CYAN}║
-║                                                              ║
-║   {Colors.YELLOW}Multi-turn Agent Conversation Interface{Colors.CYAN}                     ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝{Colors.RESET}
+{Colors.CYAN}{Colors.BOLD}╔════════════════════════════════════════════════════════════════════════╗
+║                                                                        ║
+║  {Colors.GREEN} ██████  ██████   █████  ██████  ██   ██ ███████ ███    ██ ████████ {Colors.CYAN}  ║
+║  {Colors.GREEN}██       ██   ██ ██   ██ ██   ██ ██   ██ ██      ████   ██    ██    {Colors.CYAN}  ║
+║  {Colors.GREEN}██   ███ ██████  ███████ ██████  ███████ █████   ██ ██  ██    ██    {Colors.CYAN}  ║
+║  {Colors.GREEN}██    ██ ██   ██ ██   ██ ██      ██   ██ ██      ██  ██ ██    ██    {Colors.CYAN}  ║
+║  {Colors.GREEN} ██████  ██   ██ ██   ██ ██      ██   ██ ███████ ██   ████    ██    {Colors.CYAN}  ║
+║                                                                        ║
+║              {Colors.YELLOW}Multi-turn Agent Conversation Interface{Colors.CYAN}                   ║
+║                                                                        ║
+╚════════════════════════════════════════════════════════════════════════╝{Colors.RESET}
 """
         print(banner)
 
@@ -128,9 +208,12 @@ class CLI:
         """Print current model information."""
         print(f"\n{Colors.BOLD}{Colors.CYAN}Model Information:{Colors.RESET}")
         print(f"{Colors.DIM}{'─' * 50}{Colors.RESET}")
-        print(f"  {Colors.YELLOW}Model:{Colors.RESET} google/gemini-2.5-flash-preview-09-2025")
-        print(f"  {Colors.YELLOW}Provider:{Colors.RESET} OpenRouter")
-        print(f"  {Colors.YELLOW}Temperature:{Colors.RESET} 0")
+        if self.model:
+            print(f"  {Colors.YELLOW}Model:{Colors.RESET} {self.model.model_name}")
+            print(f"  {Colors.YELLOW}Provider:{Colors.RESET} {self.model.openai_api_base or 'OpenAI'}")
+            print(f"  {Colors.YELLOW}Temperature:{Colors.RESET} {self.model.temperature}")
+        else:
+            print(f"  {Colors.DIM}No model initialized{Colors.RESET}")
         if self.conversation_start:
             duration = datetime.now() - self.conversation_start
             print(f"  {Colors.YELLOW}Session Duration:{Colors.RESET} {str(duration).split('.')[0]}")
@@ -138,7 +221,7 @@ class CLI:
 
     def _clear_conversation(self):
         """Clear conversation history and start fresh."""
-        self.context = Context()
+        self.context = Context(hooks=self._hooks)
         self.conversation_start = datetime.now()
         print(f"\n{Colors.GREEN}✓ Conversation cleared. Starting fresh!{Colors.RESET}\n")
 
@@ -150,28 +233,20 @@ class CLI:
         """Format the agent's response for display."""
         return f"\n{Colors.BLUE}{Colors.BOLD}Agent ❯{Colors.RESET} {response}\n"
 
-    def _print_thinking(self):
-        """Print a thinking indicator."""
-        print(f"\n{Colors.DIM}{Colors.ITALIC}Agent is thinking...{Colors.RESET}", end='', flush=True)
-
-    def _clear_thinking(self):
-        """Clear the thinking indicator."""
-        # Move cursor to beginning of line and clear
-        print('\r' + ' ' * 30 + '\r', end='', flush=True)
-
     def _setup_agent(self):
         """Initialize the agent and model."""
-        # Suppress logging noise during setup
-        AgentLoggerConfig.setup()
+        # Disable console logging - use a file instead for debugging
+        log_file = os.path.expanduser('~/.graphent_debug.log')
+        AgentLoggerConfig.setup(log_file=log_file)
 
         self.model = ChatOpenAI(
             model="z-ai/glm-4.6:exacto",
-            temperature=0.2,
+            temperature=0.3,
             api_key=os.environ.get("OPENROUTER_API_KEY", ""),
             base_url="https://openrouter.ai/api/v1",
         )
 
-        # Build the weather agent
+        # Build the weather agent with hooks
         weather_agent = (AgentBuilder()
                          .with_name("Weather Agent")
                          .with_description("Agent that can get the weather at a location.")
@@ -179,14 +254,19 @@ class CLI:
                          .with_system_prompt("Answer questions about the weather using the get_weather tool.")
                          .add_tool(get_weather)
                          .add_tool(get_coords)
+                         .with_hooks(self._hooks)
                          .build())
 
-        # Build the main agent
+        # Build the main agent with hooks
         main_agent_builder = (AgentBuilder()
                               .with_name("Main Agent")
                               .with_model(self.model)
                               .with_system_prompt("You are qwarki, a helpful agent. Be concise but friendly in your responses.")
-                              .with_description("The main agent can call other agents."))
+                              .with_description("The main agent can call other agents.")
+                              .with_hooks(self._hooks))
+
+        # Create context with hooks for todo change events
+        self.context = Context(hooks=self._hooks)
 
         # Create todo tools bound to self.context (uses lambda to always get current context)
         self.agent = (main_agent_builder
@@ -194,7 +274,6 @@ class CLI:
                       .add_tools(create_todo_tools(lambda: self.context))
                       .build())
 
-        self.context = Context()
         self.conversation_start = datetime.now()
 
     def _handle_command(self, command: str) -> bool:
@@ -222,20 +301,15 @@ class CLI:
 
     def _process_message(self, user_input: str):
         """Process a user message and get agent response."""
-        self._print_thinking()
-
         try:
             self.context.add_message(HumanMessage(content=user_input))
             self.context = self.agent.invoke(self.context)
-            
-            self._clear_thinking()
             
             # Get the last AI message
             response = self.context.get_messages()[-1].content
             print(self._format_agent_response(response))
 
         except Exception as e:
-            self._clear_thinking()
             print(f"\n{Colors.RED}Error: {str(e)}{Colors.RESET}\n")
 
     def run(self):
