@@ -264,6 +264,115 @@ class TestSystemPromptSetup:
         assert "Test description" in result
 
 
+class TestTodoToolsDetection:
+    """Tests for todo tools detection and system prompt injection."""
+
+    def test_has_todo_tools_false_without_todo_tools(self, mock_model, mock_tool):
+        """_has_todo_tools should be False when no todo tools are bound."""
+        agent = Agent(
+            name="TestAgent",
+            model=mock_model,
+            system_prompt="Test prompt",
+            description="Test",
+            tools=[mock_tool]
+        )
+
+        assert agent._has_todo_tools is False
+
+    def test_has_todo_tools_true_with_todo_tools(self, mock_model):
+        """_has_todo_tools should be True when todo tools are bound."""
+        # Create mock todo tools
+        add_todo = MagicMock(spec=BaseTool)
+        add_todo.name = "add_todo"
+        get_todos = MagicMock(spec=BaseTool)
+        get_todos.name = "get_todos"
+
+        agent = Agent(
+            name="TestAgent",
+            model=mock_model,
+            system_prompt="Test prompt",
+            description="Test",
+            tools=[add_todo, get_todos]
+        )
+
+        assert agent._has_todo_tools is True
+
+    def test_has_todo_tools_with_partial_todo_tools(self, mock_model):
+        """_has_todo_tools should be True even with partial todo tools."""
+        # Just one todo tool should trigger detection
+        add_todo = MagicMock(spec=BaseTool)
+        add_todo.name = "add_todo"
+
+        agent = Agent(
+            name="TestAgent",
+            model=mock_model,
+            system_prompt="Test prompt",
+            description="Test",
+            tools=[add_todo]
+        )
+
+        assert agent._has_todo_tools is True
+
+    def test_build_system_prompt_with_todo_tools(self, mock_model):
+        """System prompt should include todo instruction when todo tools are bound."""
+        from lib.Agent import TODO_TOOLS_INSTRUCTION
+
+        add_todo = MagicMock(spec=BaseTool)
+        add_todo.name = "add_todo"
+
+        agent = Agent(
+            name="TestAgent",
+            model=mock_model,
+            system_prompt="Base prompt",
+            description="Test",
+            tools=[add_todo]
+        )
+
+        context = Context()
+        built_prompt = agent._build_system_prompt_with_context(context)
+
+        assert "Base prompt" in built_prompt
+        assert "Todo List Tools" in built_prompt
+        assert "No todos in the list" in built_prompt
+
+    def test_build_system_prompt_includes_todos_state(self, mock_model):
+        """System prompt should include current todos state."""
+        add_todo = MagicMock(spec=BaseTool)
+        add_todo.name = "add_todo"
+
+        agent = Agent(
+            name="TestAgent",
+            model=mock_model,
+            system_prompt="Base prompt",
+            description="Test",
+            tools=[add_todo]
+        )
+
+        context = Context()
+        context.add_todo("Test task", "Test description")
+
+        built_prompt = agent._build_system_prompt_with_context(context)
+
+        assert "Test task" in built_prompt
+        assert "Current Todo List" in built_prompt
+
+    def test_build_system_prompt_without_todo_tools(self, mock_model, mock_tool):
+        """System prompt should not include todo section without todo tools."""
+        agent = Agent(
+            name="TestAgent",
+            model=mock_model,
+            system_prompt="Base prompt",
+            description="Test",
+            tools=[mock_tool]
+        )
+
+        context = Context()
+        built_prompt = agent._build_system_prompt_with_context(context)
+
+        assert built_prompt == "Base prompt"
+        assert "Todo List Tools" not in built_prompt
+
+
 class TestHandOffToSubagent:
     """Tests for sub-agent delegation."""
 
