@@ -87,7 +87,7 @@ class CLIHooksHandler:
     def handle_todo_change(self, event: TodoChangeEvent):
         """Display todo list changes."""
         if event.action == "add":
-            icon = "➕"
+            icon = "➕ "
             action_text = f"Added todo #{event.todo_id}"
             details = f'"{event.title}"'
         elif event.action == "update":
