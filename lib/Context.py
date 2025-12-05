@@ -4,6 +4,7 @@ This module provides the Context class for tracking message history
 in agent conversations.
 """
 
+import itertools
 from typing import Optional, TYPE_CHECKING
 
 from langchain_core.messages import BaseMessage
@@ -23,14 +24,22 @@ class Todo:
         state: Current state of the Todo item (pending, in_progress, done).
 
     """
-    _id_counter: int = 0
+    _id_generator = itertools.count(1)
 
     def __init__(self, title: str, description: str = ""):
-        Todo._id_counter += 1
-        self.id: int = Todo._id_counter
+        self.id: int = next(Todo._id_generator)
         self.title: str = title
         self.description: str = description
         self.state: Literal["pending", "in_progress", "done"] = "pending"
+
+    @classmethod
+    def reset_id_counter(cls, start: int = 1) -> None:
+        """Reset the ID counter. Useful for testing.
+
+        Args:
+            start: The starting value for the counter (default: 1).
+        """
+        cls._id_generator = itertools.count(start)
 
     def to_dict(self) -> dict:
         """Convert the todo to a dictionary representation."""
