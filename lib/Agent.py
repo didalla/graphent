@@ -34,7 +34,7 @@ TODO_TOOLS_INSTRUCTION = """
 You have access to todo list tools for planning and task management. Use them to:
 - Break down every task into smaller, manageable subtasks, even if it is just one step.
 - Track progress on work, track each step of the process, and keep track of any blockers.
-- Allways Organize your work before starting execution
+- Always Organize your work before starting execution
 
 When working on requests:
 1. First, create todos to plan out the steps
