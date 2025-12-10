@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2025-12-10
+
 ### Added
+
+- **Graph-Based Workflow System**: A new module for building directed graph workflows with AI nodes.
+  - New `lib/graph/` package with modular architecture
+  - `nodes.py` - Node types: `BaseNode`, `StartNode`, `EndNode`, `AgentNode`, `ClassifierNode`, `ActionNode`
+  - `edges.py` - Edge types: `Edge`, `ConditionalEdge` for workflow routing
+  - `builder.py` - `GraphBuilder` class for fluent graph construction
+  - `hooks.py` - Graph-specific hooks: `@before_node`, `@after_node`, `@on_error`
+  - `runner.py` - `GraphRunner` for executing graph workflows
+  - `graph_demo.py` - Comprehensive demonstration of graph capabilities
+
+- **YAML Configuration Loading**: Configure agents and graphs from YAML files.
+  - New `lib/yaml_loader.py` module for parsing YAML configurations
+  - Support for inline model definitions in YAML
+  - Support for inline subagent definitions
+  - External tool and agent resolution from registries
+  - Example YAML configurations in `examples/yaml/`
+  - Comprehensive tests in `tests/test_yaml_loader.py`
 
 - **Event Hooks/Callbacks**: New hook system for monitoring and reacting to agent execution events.
   - New `lib/hooks.py` module with decorators and event data classes
@@ -50,9 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `TestAsyncStreaming` - Async streaming tests (async chunk yielding, context updates, async tool calls)
   - `TestStreamingEdgeCases` - Edge cases (chunks without content attribute, malformed JSON in tool args, None tools guard)
 
+- **CLI Improvements**: Better hooks for tool and todo change events with improved code formatting.
+
 ### Changed
 
-- Updated `ROADMAP.md` to reflect implemented streaming feature
+- Updated `ROADMAP.md` to reflect implemented streaming and graph features
+- Standardized string literals from single to double quotes across codebase
 
 ## [0.1.0] - 2024-XX-XX
 
