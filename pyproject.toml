@@ -46,11 +46,16 @@ dev = [
     "build>=1.0.0",
     "twine>=5.0.0",
 ]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-shadcn>=0.2.0",
+    "mkdocstrings[python]>=0.27.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/didalla/graphent"
 Repository = "https://github.com/didalla/graphent"
-Documentation = "https://github.com/didalla/graphent#readme"
+Documentation = "https://didalla.github.io/graphent/"
 Issues = "https://github.com/didalla/graphent/issues"
 Changelog = "https://github.com/didalla/graphent/blob/main/CHANGELOG.md"
 

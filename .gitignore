@@ -18,3 +18,4 @@ htmlcov/
 .venv
 
 graphent.egg-info
+site/

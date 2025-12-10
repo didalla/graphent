@@ -3,8 +3,11 @@
 [![PyPI version](https://badge.fury.io/py/graphent.svg)](https://badge.fury.io/py/graphent)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://didalla.github.io/graphent/)
 
 A multi-agent framework for building conversational AI systems with LangChain.
+
+📚 **[Read the Documentation](https://didalla.github.io/graphent/)**
 
 ## Features
 
