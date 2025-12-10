@@ -18,6 +18,7 @@ from lib.exceptions import AgentConfigurationError
 # Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def mock_model():
     """Create a mock BaseChatModel."""
@@ -47,16 +48,19 @@ def mock_agent():
 @pytest.fixture
 def complete_builder(mock_model):
     """Create a builder with all required fields set."""
-    return (AgentBuilder()
-            .with_name("TestAgent")
-            .with_model(mock_model)
-            .with_system_prompt("You are a test agent.")
-            .with_description("A test agent for testing"))
+    return (
+        AgentBuilder()
+        .with_name("TestAgent")
+        .with_model(mock_model)
+        .with_system_prompt("You are a test agent.")
+        .with_description("A test agent for testing")
+    )
 
 
 # ============================================================================
 # Test Classes
 # ============================================================================
+
 
 class TestAgentBuilderInitialization:
     """Tests for AgentBuilder initialization."""
@@ -64,7 +68,7 @@ class TestAgentBuilderInitialization:
     def test_init_creates_empty_builder(self):
         """AgentBuilder should initialize with None/empty values."""
         builder = AgentBuilder()
-        
+
         assert builder._name is None
         assert builder._model is None
         assert builder._system_prompt is None
@@ -160,9 +164,9 @@ class TestWithSystemPrompt:
 
     def test_with_system_prompt_overwrites_previous(self):
         """Calling with_system_prompt again should overwrite previous value."""
-        builder = (AgentBuilder()
-                   .with_system_prompt("First")
-                   .with_system_prompt("Second"))
+        builder = (
+            AgentBuilder().with_system_prompt("First").with_system_prompt("Second")
+        )
         assert builder._system_prompt == "Second"
 
 
@@ -187,9 +191,7 @@ class TestWithDescription:
 
     def test_with_description_overwrites_previous(self):
         """Calling with_description again should overwrite previous value."""
-        builder = (AgentBuilder()
-                   .with_description("First")
-                   .with_description("Second"))
+        builder = AgentBuilder().with_description("First").with_description("Second")
         assert builder._description == "Second"
 
 
@@ -216,12 +218,9 @@ class TestAddTool:
         tool2.name = "tool2"
         tool3 = MagicMock(spec=BaseTool)
         tool3.name = "tool3"
-        
-        builder = (AgentBuilder()
-                   .add_tool(tool1)
-                   .add_tool(tool2)
-                   .add_tool(tool3))
-        
+
+        builder = AgentBuilder().add_tool(tool1).add_tool(tool2).add_tool(tool3)
+
         assert len(builder._tools) == 3
         assert builder._tools[0] is tool1
         assert builder._tools[1] is tool2
@@ -231,10 +230,10 @@ class TestAddTool:
         """Tools should be added in order."""
         tools = [MagicMock(spec=BaseTool) for _ in range(5)]
         builder = AgentBuilder()
-        
+
         for tool in tools:
             builder.add_tool(tool)
-        
+
         for i, tool in enumerate(tools):
             assert builder._tools[i] is tool
 
@@ -246,7 +245,7 @@ class TestAddTools:
         """add_tools should add all tools from the list."""
         tools = [MagicMock(spec=BaseTool) for _ in range(3)]
         builder = AgentBuilder().add_tools(tools)
-        
+
         assert len(builder._tools) == 3
         for i, tool in enumerate(tools):
             assert builder._tools[i] is tool
@@ -266,11 +265,9 @@ class TestAddTools:
         """add_tools should extend existing tools, not replace."""
         tool2 = MagicMock(spec=BaseTool)
         tool3 = MagicMock(spec=BaseTool)
-        
-        builder = (AgentBuilder()
-                   .add_tool(mock_tool)
-                   .add_tools([tool2, tool3]))
-        
+
+        builder = AgentBuilder().add_tool(mock_tool).add_tools([tool2, tool3])
+
         assert len(builder._tools) == 3
         assert builder._tools[0] is mock_tool
         assert builder._tools[1] is tool2
@@ -280,9 +277,9 @@ class TestAddTools:
         """Multiple add_tools calls should accumulate."""
         tools1 = [MagicMock(spec=BaseTool) for _ in range(2)]
         tools2 = [MagicMock(spec=BaseTool) for _ in range(3)]
-        
+
         builder = AgentBuilder().add_tools(tools1).add_tools(tools2)
-        
+
         assert len(builder._tools) == 5
 
 
@@ -305,9 +302,9 @@ class TestAddAgent:
         """add_agent can be called multiple times."""
         agent1 = MagicMock(spec=Agent)
         agent2 = MagicMock(spec=Agent)
-        
+
         builder = AgentBuilder().add_agent(agent1).add_agent(agent2)
-        
+
         assert len(builder._callable_agents) == 2
         assert builder._callable_agents[0] is agent1
         assert builder._callable_agents[1] is agent2
@@ -320,7 +317,7 @@ class TestAddAgents:
         """add_agents should add all agents from the list."""
         agents = [MagicMock(spec=Agent) for _ in range(3)]
         builder = AgentBuilder().add_agents(agents)
-        
+
         assert len(builder._callable_agents) == 3
 
     def test_add_agents_returns_self(self):
@@ -337,11 +334,9 @@ class TestAddAgents:
     def test_add_agents_extends_existing(self, mock_agent):
         """add_agents should extend existing agents, not replace."""
         agent2 = MagicMock(spec=Agent)
-        
-        builder = (AgentBuilder()
-                   .add_agent(mock_agent)
-                   .add_agents([agent2]))
-        
+
+        builder = AgentBuilder().add_agent(mock_agent).add_agents([agent2])
+
         assert len(builder._callable_agents) == 2
 
 
@@ -351,7 +346,7 @@ class TestBuild:
     def test_build_creates_agent(self, complete_builder):
         """build should create an Agent with configured values."""
         agent = complete_builder.build()
-        
+
         assert isinstance(agent, Agent)
         assert agent.name == "TestAgent"
         assert "You are a test agent." in agent.system_prompt
@@ -359,56 +354,66 @@ class TestBuild:
 
     def test_build_without_name_raises(self, mock_model):
         """build without name should raise AgentConfigurationError."""
-        builder = (AgentBuilder()
-                   .with_model(mock_model)
-                   .with_system_prompt("Test")
-                   .with_description("Test"))
-        
+        builder = (
+            AgentBuilder()
+            .with_model(mock_model)
+            .with_system_prompt("Test")
+            .with_description("Test")
+        )
+
         with pytest.raises(AgentConfigurationError) as exc_info:
             builder.build()
         assert "name" in str(exc_info.value).lower()
 
     def test_build_without_model_raises(self):
         """build without model should raise AgentConfigurationError."""
-        builder = (AgentBuilder()
-                   .with_name("Test")
-                   .with_system_prompt("Test")
-                   .with_description("Test"))
-        
+        builder = (
+            AgentBuilder()
+            .with_name("Test")
+            .with_system_prompt("Test")
+            .with_description("Test")
+        )
+
         with pytest.raises(AgentConfigurationError) as exc_info:
             builder.build()
         assert "model" in str(exc_info.value).lower()
 
     def test_build_without_system_prompt_raises(self, mock_model):
         """build without system_prompt should raise AgentConfigurationError."""
-        builder = (AgentBuilder()
-                   .with_name("Test")
-                   .with_model(mock_model)
-                   .with_description("Test"))
-        
+        builder = (
+            AgentBuilder()
+            .with_name("Test")
+            .with_model(mock_model)
+            .with_description("Test")
+        )
+
         with pytest.raises(AgentConfigurationError) as exc_info:
             builder.build()
         assert "system prompt" in str(exc_info.value).lower()
 
     def test_build_without_description_raises(self, mock_model):
         """build without description should raise AgentConfigurationError."""
-        builder = (AgentBuilder()
-                   .with_name("Test")
-                   .with_model(mock_model)
-                   .with_system_prompt("Test"))
-        
+        builder = (
+            AgentBuilder()
+            .with_name("Test")
+            .with_model(mock_model)
+            .with_system_prompt("Test")
+        )
+
         with pytest.raises(AgentConfigurationError) as exc_info:
             builder.build()
         assert "description" in str(exc_info.value).lower()
 
     def test_build_with_empty_name_succeeds(self, mock_model):
         """build with empty string name should succeed (not None)."""
-        builder = (AgentBuilder()
-                   .with_name("")
-                   .with_model(mock_model)
-                   .with_system_prompt("Test")
-                   .with_description("Test"))
-        
+        builder = (
+            AgentBuilder()
+            .with_name("")
+            .with_model(mock_model)
+            .with_system_prompt("Test")
+            .with_description("Test")
+        )
+
         # Empty string is not None, so this should work
         agent = builder.build()
         assert agent.name == ""
@@ -417,7 +422,7 @@ class TestBuild:
         """build should include tools when added."""
         complete_builder.add_tool(mock_tool)
         agent = complete_builder.build()
-        
+
         assert agent.tools is not None
         assert len(agent.tools) == 1
 
@@ -430,7 +435,7 @@ class TestBuild:
         """build should include callable_agents when added."""
         complete_builder.add_agent(mock_agent)
         agent = complete_builder.build()
-        
+
         assert agent.callable_agents is not None
         assert len(agent.callable_agents) == 1
 
@@ -443,7 +448,7 @@ class TestBuild:
         """build can be called multiple times to create different agents."""
         agent1 = complete_builder.build()
         agent2 = complete_builder.build()
-        
+
         assert agent1 is not agent2
         assert agent1.name == agent2.name
 
@@ -453,45 +458,54 @@ class TestMethodChaining:
 
     def test_full_chain(self, mock_model, mock_tool, mock_agent):
         """All methods should chain together fluently."""
-        agent = (AgentBuilder()
-                 .with_name("ChainedAgent")
-                 .with_model(mock_model)
-                 .with_system_prompt("Test prompt")
-                 .with_description("Test description")
-                 .add_tool(mock_tool)
-                 .add_agent(mock_agent)
-                 .build())
-        
+        agent = (
+            AgentBuilder()
+            .with_name("ChainedAgent")
+            .with_model(mock_model)
+            .with_system_prompt("Test prompt")
+            .with_description("Test description")
+            .add_tool(mock_tool)
+            .add_agent(mock_agent)
+            .build()
+        )
+
         assert isinstance(agent, Agent)
         assert agent.name == "ChainedAgent"
 
     def test_chain_order_independent(self, mock_model):
         """Methods can be called in any order."""
-        agent = (AgentBuilder()
-                 .with_description("Description first")
-                 .with_system_prompt("Prompt second")
-                 .with_name("Name third")
-                 .with_model(mock_model)
-                 .build())
-        
+        agent = (
+            AgentBuilder()
+            .with_description("Description first")
+            .with_system_prompt("Prompt second")
+            .with_name("Name third")
+            .with_model(mock_model)
+            .build()
+        )
+
         assert agent.name == "Name third"
         assert agent.description == "Description first"
 
     def test_mixed_tool_methods(self, mock_model):
         """add_tool and add_tools can be mixed."""
         tool1 = MagicMock(spec=BaseTool)
+        tool1.name = "tool1"
         tool2 = MagicMock(spec=BaseTool)
+        tool2.name = "tool2"
         tool3 = MagicMock(spec=BaseTool)
-        
-        agent = (AgentBuilder()
-                 .with_name("Test")
-                 .with_model(mock_model)
-                 .with_system_prompt("Test")
-                 .with_description("Test")
-                 .add_tool(tool1)
-                 .add_tools([tool2, tool3])
-                 .build())
-        
+        tool3.name = "tool3"
+
+        agent = (
+            AgentBuilder()
+            .with_name("Test")
+            .with_model(mock_model)
+            .with_system_prompt("Test")
+            .with_description("Test")
+            .add_tool(tool1)
+            .add_tools([tool2, tool3])
+            .build()
+        )
+
         assert agent.tools is not None
         assert len(agent.tools) == 3
 
@@ -503,7 +517,7 @@ class TestBuilderIsolation:
         """Different builder instances should not share state."""
         builder1 = AgentBuilder().with_name("Agent1")
         builder2 = AgentBuilder().with_name("Agent2")
-        
+
         assert builder1._name == "Agent1"
         assert builder2._name == "Agent2"
 
@@ -511,7 +525,7 @@ class TestBuilderIsolation:
         """Different builders should have independent tool lists."""
         builder1 = AgentBuilder().add_tool(mock_tool)
         builder2 = AgentBuilder()
-        
+
         assert len(builder1._tools) == 1
         assert len(builder2._tools) == 0
 
@@ -519,7 +533,7 @@ class TestBuilderIsolation:
         """Different builders should have independent agent lists."""
         builder1 = AgentBuilder().add_agent(mock_agent)
         builder2 = AgentBuilder()
-        
+
         assert len(builder1._callable_agents) == 1
         assert len(builder2._callable_agents) == 0
 
@@ -535,38 +549,48 @@ class TestEdgeCases:
 
     def test_special_characters_in_name(self, mock_model):
         """Name can contain special characters."""
-        agent = (AgentBuilder()
-                 .with_name("Agent @#$%^&*() 日本語 🎉")
-                 .with_model(mock_model)
-                 .with_system_prompt("Test")
-                 .with_description("Test")
-                 .build())
-        
+        agent = (
+            AgentBuilder()
+            .with_name("Agent @#$%^&*() 日本語 🎉")
+            .with_model(mock_model)
+            .with_system_prompt("Test")
+            .with_description("Test")
+            .build()
+        )
+
         assert agent.name == "Agent @#$%^&*() 日本語 🎉"
 
     def test_very_long_system_prompt(self, mock_model):
         """System prompt can be very long."""
         long_prompt = "A" * 10000
-        agent = (AgentBuilder()
-                 .with_name("Test")
-                 .with_model(mock_model)
-                 .with_system_prompt(long_prompt)
-                 .with_description("Test")
-                 .build())
-        
+        agent = (
+            AgentBuilder()
+            .with_name("Test")
+            .with_model(mock_model)
+            .with_system_prompt(long_prompt)
+            .with_description("Test")
+            .build()
+        )
+
         assert long_prompt in agent.system_prompt
 
     def test_many_tools(self, mock_model):
         """Builder should handle many tools."""
-        tools = [MagicMock(spec=BaseTool) for _ in range(100)]
-        
-        builder = (AgentBuilder()
-                   .with_name("Test")
-                   .with_model(mock_model)
-                   .with_system_prompt("Test")
-                   .with_description("Test")
-                   .add_tools(tools))
-        
+        tools = []
+        for i in range(100):
+            tool = MagicMock(spec=BaseTool)
+            tool.name = f"tool_{i}"
+            tools.append(tool)
+
+        builder = (
+            AgentBuilder()
+            .with_name("Test")
+            .with_model(mock_model)
+            .with_system_prompt("Test")
+            .with_description("Test")
+            .add_tools(tools)
+        )
+
         agent = builder.build()
         assert agent.tools is not None
         assert len(agent.tools) == 100
@@ -577,14 +601,16 @@ class TestEdgeCases:
         for i, agent in enumerate(agents):
             agent.name = f"Agent{i}"
             agent.description = f"Description {i}"
-        
-        builder = (AgentBuilder()
-                   .with_name("Test")
-                   .with_model(mock_model)
-                   .with_system_prompt("Test")
-                   .with_description("Test")
-                   .add_agents(agents))
-        
+
+        builder = (
+            AgentBuilder()
+            .with_name("Test")
+            .with_model(mock_model)
+            .with_system_prompt("Test")
+            .with_description("Test")
+            .add_agents(agents)
+        )
+
         agent = builder.build()
         assert agent.callable_agents is not None
         assert len(agent.callable_agents) == 50
@@ -596,10 +622,10 @@ class TestBuilderReuse:
     def test_builder_can_be_modified_after_build(self, complete_builder, mock_tool):
         """Builder can be modified after calling build."""
         agent1 = complete_builder.build()
-        
+
         complete_builder.add_tool(mock_tool)
         agent2 = complete_builder.build()
-        
+
         assert agent1.tools is None
         assert agent2.tools is not None
 
@@ -611,9 +637,9 @@ class TestBuilderReuse:
         builder.add_tool(mock_tool)
         builder.with_system_prompt("Prompt")
         builder.with_description("Desc")
-        
+
         agent = builder.build()
-        
+
         assert agent.name == "Test"
         assert agent.tools is not None
         assert len(agent.tools) == 1
