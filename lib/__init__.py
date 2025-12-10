@@ -73,6 +73,9 @@ from lib import tools
 from lib import agents
 from lib import graph
 
+# YAML configuration loading
+from lib.yaml_loader import load_agent_from_yaml, load_graph_from_yaml
+
 # Graph-based architecture
 from lib.graph import (
     Graph,
@@ -156,4 +159,7 @@ __all__ = [
     "on_node_exit",
     "on_edge_traverse",
     "on_classification",
+    # YAML loading
+    "load_agent_from_yaml",
+    "load_graph_from_yaml",
 ]
