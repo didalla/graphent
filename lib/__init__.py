@@ -71,6 +71,29 @@ from lib.logging_utils import (
 # Submodules (for explicit imports like `from lib import tools`)
 from lib import tools
 from lib import agents
+from lib import graph
+
+# Graph-based architecture
+from lib.graph import (
+    Graph,
+    GraphBuilder,
+    ActionNode,
+    AgentNode,
+    ClassifierNode,
+    Edge,
+    ConditionalEdge,
+    BaseNode,
+    GraphHookRegistry,
+    GraphHookType,
+    NodeEnterEvent,
+    NodeExitEvent,
+    EdgeTraverseEvent,
+    ClassificationEvent,
+    on_node_enter,
+    on_node_exit,
+    on_edge_traverse,
+    on_classification,
+)
 
 __all__ = [
     # Version
@@ -113,4 +136,24 @@ __all__ = [
     # Submodules
     "tools",
     "agents",
+    "graph",
+    # Graph-based architecture
+    "Graph",
+    "GraphBuilder",
+    "ActionNode",
+    "AgentNode",
+    "ClassifierNode",
+    "Edge",
+    "ConditionalEdge",
+    "BaseNode",
+    "GraphHookRegistry",
+    "GraphHookType",
+    "NodeEnterEvent",
+    "NodeExitEvent",
+    "EdgeTraverseEvent",
+    "ClassificationEvent",
+    "on_node_enter",
+    "on_node_exit",
+    "on_edge_traverse",
+    "on_classification",
 ]
