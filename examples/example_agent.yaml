@@ -1,0 +1,39 @@
+# Example Agent Configuration
+# This demonstrates all available options for agent YAML configuration
+
+name: "Research Assistant"
+description: "An AI assistant that researches topics and summarizes findings"
+system_prompt: |
+  You are a research assistant. When given a topic, you:
+  1. Break down the research into subtasks
+  2. Use available tools to gather information
+  3. Summarize your findings clearly
+
+# Model can be inline config or reference to named model
+model:
+  provider: openrouter
+  name: "z-ai/glm-4.6:exacto"
+  temperature: 0.3
+  api_key: ${OPENROUTER_API_KEY}
+  base_url: "https://openrouter.ai/api/v1"
+
+# Tools are referenced by name and resolved from registry at load time
+tools:
+  - web_search
+  - calculator
+
+# Sub-agents can be name references OR inline definitions
+sub_agents:
+  # Reference by name (resolved from agents_registry)
+  - summarizer
+  
+  # Inline agent definition
+  - name: "Fact Checker"
+    description: "Verifies facts and sources"
+    system_prompt: "You verify facts by checking sources."
+    model:
+      provider: openrouter
+      name: "anthropic/claude-3-haiku"
+      temperature: 0.1
+      api_key: ${OPENROUTER_API_KEY}
+      base_url: "https://openrouter.ai/api/v1"

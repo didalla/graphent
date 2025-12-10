@@ -1,0 +1,102 @@
+# Example Graph Configuration
+# This demonstrates a complete graph with multiple node types
+
+# Named model definitions - reusable across nodes and agents
+models:
+  default:
+    provider: openrouter
+    name: "z-ai/glm-4.6:exacto"
+    temperature: 0.3
+    api_key: ${OPENROUTER_API_KEY}
+    base_url: "https://openrouter.ai/api/v1"
+  
+  fast:
+    provider: openrouter
+    name: "anthropic/claude-3-haiku"
+    temperature: 0.1
+    api_key: ${OPENROUTER_API_KEY}
+    base_url: "https://openrouter.ai/api/v1"
+
+# Inline agent definitions - referenced by nodes or other agents
+agents:
+  calculator_agent:
+    name: "Calculator Agent"
+    description: "Math assistant with calculator tool"
+    system_prompt: |
+      You are a math assistant. Use the calculator tool 
+      to solve problems. Always show your work.
+    model: default  # Reference named model
+    tools:
+      - calculator
+  
+  researcher:
+    name: "Researcher"
+    description: "Researches topics thoroughly"
+    system_prompt: "You research topics and provide detailed analysis."
+    model: default
+    sub_agents:
+      # Inline subagent definition
+      - name: "Fact Checker"
+        description: "Checks facts"
+        system_prompt: "Verify facts carefully."
+        model: fast
+
+# Node definitions
+nodes:
+  # Classifier node for routing
+  - name: router
+    type: classifier
+    model: fast  # Override default model
+    classes:
+      - technical
+      - creative
+      - math
+      - general
+  
+  # Action nodes for different handlers
+  - name: tech_handler
+    type: action
+    model: default
+    system_prompt: |
+      You are a technical expert. Provide detailed, 
+      technical responses with code examples if relevant.
+  
+  - name: creative_handler
+    type: action
+    system_prompt: |
+      You are a creative writer. Respond with imagination,
+      using metaphors and storytelling.
+  
+  - name: general_handler
+    type: action
+    system_prompt: |
+      You are a helpful assistant. Provide clear,
+      balanced responses.
+  
+  # Agent node for math problems
+  - name: math_solver
+    type: agent
+    agent: calculator_agent  # Reference inline agent
+
+# Edges between nodes
+edges:
+  - from: tech_handler
+    to: formatter
+  - from: creative_handler
+    to: formatter
+  - from: general_handler
+    to: formatter
+  - from: math_solver
+    to: formatter
+
+# Conditional branches from classifier
+branches:
+  router:
+    technical: tech_handler
+    creative: creative_handler
+    math: math_solver
+    general: general_handler
+
+# Graph entry and exit points
+entry: router
+finish: formatter
