@@ -16,13 +16,6 @@ from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, System
 from langchain_openai import ChatOpenAI
 
 from lib import (
-<<<<<<< HEAD
-    AgentBuilder, Context, AgentLoggerConfig, HookRegistry,
-    ToolCallEvent, ToolResultEvent,
-    ModelCallEvent, DelegationEvent, TodoChangeEvent,
-    on_tool_call, after_tool_call,
-    before_model_call, on_delegation, on_todo_change
-=======
     AgentBuilder,
     Context,
     AgentLoggerConfig,
@@ -37,7 +30,6 @@ from lib import (
     before_model_call,
     on_delegation,
     on_todo_change,
->>>>>>> a407f87 (refactor: remove unused hook imports and reformat CLI code for improved readability)
 )
 from lib.tools import get_coords, get_weather, create_todo_tools
 
